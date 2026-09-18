@@ -113,24 +113,64 @@ reminder can request any combination of push/sms/email/call).
 (no native arrays/enums, ids/timestamps as text) used by the local data
 layer.
 
-### Switching to real Supabase
+### Switching to real Supabase/Postgres (production)
 
-1. Create a project at https://supabase.com.
-2. Run `database/migrations/0001_init.sql` and `0002_seed_types.sql` against
-   it (Supabase SQL editor, or `supabase db push`).
-3. Copy `.env.example` to `.env.local` and fill in:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
+`lib/db/supabase.ts` is a complete, real implementation of `DataLayer`
+against Postgres — not a stub. It connects via the raw Postgres wire
+protocol using the `pg` package (not the `supabase-js` query builder), so it
+works identically against a Supabase project or any other Postgres
+instance.
+
+1. Create a project at https://supabase.com (or use any Postgres instance).
+2. Apply `database/migrations/0001_init.sql` through `0012_*.sql` **in
+   order** against it (Supabase SQL editor, `supabase db push`, or `psql -f`
+   each file). Migrations `0010` and `0011` were originally written with a
+   couple of SQLite-flavored constructs (a `text` foreign key against a
+   `uuid` primary key, SQLite's `datetime('now')`, an `integer`-as-boolean
+   column) that fail outright on real Postgres — this is expected and
+   corrected by `0012_postgres_compatibility_fixes.sql`, which must be
+   applied after them regardless of whether their own `CREATE TABLE`
+   statements succeeded.
+3. Copy `.env.example` to `.env.local` and fill in `DATABASE_URL` (a
+   Postgres connection string — in Supabase: Project Settings → Database →
+   Connection string, using the pooler URI for serverless) plus, if you
+   also want the Supabase client identity available,
+   `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` /
+   `SUPABASE_SERVICE_ROLE_KEY`.
 4. Set `NOVA_DATA_SOURCE=supabase`.
-5. Implement `DataLayer` (see `lib/db/types.ts`) against
-   `lib/db/supabase.ts`'s `getSupabaseClient()` — `lib/db/local.ts` shows the
-   exact queries/joins to translate table-by-table. `lib/db/index.ts` is the
-   single switch point; nothing else in the app needs to change.
 
-Until that implementation is filled in, `NOVA_DATA_SOURCE=supabase` throws a
-clear error rather than silently falling back, so it's obvious when the real
-backend isn't wired up yet.
+`lib/db/index.ts` is the single switch point; nothing else in the app needs
+to change — every DataLayer method (reminders, occurrences, payments,
+notifications, push subscriptions, preferences, personal context/memory,
+automations, analytics recommendations) is implemented, using `ON CONFLICT`
+for the same upsert/idempotency guarantees the SQLite layer provides,
+real `timestamptz`/`boolean`/`integer[]` column types, and a lazily-created,
+reused connection pool (appropriate for a serverless/Vercel deployment,
+where a fresh pool per cold start would exhaust connections quickly).
+
+SQLite (`lib/db/local.ts`, the default) remains the backend for local
+development and the entire test suite — Postgres is an additive production
+option, not a replacement of the dev/test path.
+
+**Optional live verification:** `tests/postgres-datalayer.test.ts` exercises
+the real Postgres implementation end-to-end (reminders, recurrence,
+payments with concurrent-mark-paid idempotency, notifications, push
+subscriptions, memory, automations, analytics) but skips gracefully — not
+fails — when no database is configured. To run it for real: point
+`POSTGRES_TEST_DATABASE_URL` at a throwaway Postgres database (migrations
+applied), then `npx vitest run tests/postgres-datalayer.test.ts`. This was
+run against a real local Postgres 16 instance during development, which is
+exactly how the `0010`/`0011` bug above and the `created_by_automation`
+boolean/integer bug fixed in `0012` were actually found — not merely
+inferred by reading the SQL.
+
+**Honest scope of what this does *not* verify:** an actual Supabase-hosted
+project's specific connection-pooler behavior, row-level security policy
+interaction (this DataLayer connects with full table access via a
+service-role-equivalent Postgres user, bypassing RLS — see the security
+notes in `.env.example`), and any Supabase-specific network/latency
+characteristics. Those require a real Supabase project, which wasn't
+available while building this.
 
 ## Reminder lifecycle & escalation
 

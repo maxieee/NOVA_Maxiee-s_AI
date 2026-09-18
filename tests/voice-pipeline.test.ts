@@ -59,8 +59,8 @@ describe("Voice input reuses the exact V7 assistant pipeline", () => {
     const result = await handleAssistantMessage(transcript, "voice-session-1", now);
 
     expect(result.reply).toMatch(/dentist/i);
-    const userId = db.getCurrentUserId();
-    const created = db.listReminders(userId).find((r) => r.title.toLowerCase().includes("call the dentist"));
+    const userId = await db.getCurrentUserId();
+    const created = (await db.listReminders(userId)).find((r) => r.title.toLowerCase().includes("call the dentist"));
     expect(created).toBeTruthy();
     expect(created?.date).toBe("2026-09-19");
     expect(created?.time).toBe("10:00");

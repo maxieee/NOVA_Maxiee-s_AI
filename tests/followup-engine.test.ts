@@ -177,8 +177,8 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
 
   it("5) DONE stops follow-up on the occurrence (follow_up_state -> completed)", async () => {
     const db = await freshDb();
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, {
       title: "Pay rent",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -186,20 +186,20 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
       types: ["task"],
     } as never);
 
-    const before = db.listOccurrences(reminder.id)[0];
+    const before = (await db.listOccurrences(reminder.id))[0];
     expect(before.follow_up_state).toBe("pending");
 
-    db.completeReminder(reminder.id);
+    await db.completeReminder(reminder.id);
 
-    const after = db.listOccurrences(reminder.id)[0];
+    const after = (await db.listOccurrences(reminder.id))[0];
     expect(after.follow_up_state).toBe("completed");
     expect(after.next_follow_up_at).toBeNull();
   });
 
   it("6) SNOOZE cancels the current occurrence's follow-up and creates a fresh one", async () => {
     const db = await freshDb();
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, {
       title: "Call bank",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -207,9 +207,9 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
       types: ["task"],
     } as never);
 
-    db.snoozeReminder(reminder.id, 15);
+    await db.snoozeReminder(reminder.id, 15);
 
-    const occurrences = db.listOccurrences(reminder.id);
+    const occurrences = await db.listOccurrences(reminder.id);
     expect(occurrences).toHaveLength(2);
     const [original, fresh] = occurrences.sort(
       (a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime()
@@ -221,8 +221,8 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
 
   it("7) REMIND AGAIN (snooze) does not create duplicate/uncontrolled occurrences", async () => {
     const db = await freshDb();
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, {
       title: "Follow up with client",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -230,18 +230,18 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
       types: ["task"],
     } as never);
 
-    db.snoozeReminder(reminder.id, 5); // "Remind Again" in the UI is snooze(5)
+    await db.snoozeReminder(reminder.id, 5); // "Remind Again" in the UI is snooze(5)
 
-    const pendingCount = db
-      .listOccurrences(reminder.id)
-      .filter((o) => o.status === "pending").length;
+    const pendingCount = (await db.listOccurrences(reminder.id)).filter(
+      (o) => o.status === "pending"
+    ).length;
     expect(pendingCount).toBe(1);
   });
 
   it("10) recurring reminders: a completed occurrence's history doesn't affect the fresh next one", async () => {
     const db = await freshDb();
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, {
       title: "Weekly standup",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -250,42 +250,42 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
       recurrence: { frequency: "weekly", interval: 1 },
     } as never);
 
-    const firstOccurrence = db.listOccurrences(reminder.id)[0];
-    db.updateOccurrenceFollowUp(firstOccurrence.id, {
+    const firstOccurrence = (await db.listOccurrences(reminder.id))[0];
+    await db.updateOccurrenceFollowUp(firstOccurrence.id, {
       follow_up_state: "escalated",
       notification_attempt_count: 4,
       escalation_level: 2,
     });
-    db.completeReminder(reminder.id);
+    await db.completeReminder(reminder.id);
 
     // Simulate the recurring-reschedule path the done route takes.
     const nextDate = new Date();
     nextDate.setDate(nextDate.getDate() + 7);
-    db.rescheduleReminder(reminder.id, nextDate.toISOString().slice(0, 10), "00:00");
-    db.updateReminderStatus(reminder.id, "scheduled");
-    const nextOccurrence = db.addOccurrence(reminder.id, nextDate.toISOString());
+    await db.rescheduleReminder(reminder.id, nextDate.toISOString().slice(0, 10), "00:00");
+    await db.updateReminderStatus(reminder.id, "scheduled");
+    const nextOccurrence = await db.addOccurrence(reminder.id, nextDate.toISOString());
 
     expect(nextOccurrence.follow_up_state).toBe("pending");
     expect(nextOccurrence.notification_attempt_count).toBe(0);
     expect(nextOccurrence.escalation_level).toBe(0);
 
-    const priorOccurrence = db.listOccurrences(reminder.id).find((o) => o.id === firstOccurrence.id)!;
+    const priorOccurrence = (await db.listOccurrences(reminder.id)).find((o) => o.id === firstOccurrence.id)!;
     expect(priorOccurrence.notification_attempt_count).toBe(4); // untouched by the new occurrence
   });
 
   it("14) every real notification attempt writes an honest history/notifications row", async () => {
     const db = await freshDb();
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, {
       title: "Unconfigured channel test",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
       priority: "medium",
       types: ["task"],
     } as never);
-    const occ = db.listOccurrences(reminder.id)[0];
+    const occ = (await db.listOccurrences(reminder.id))[0];
 
-    db.logNotification({
+    await db.logNotification({
       reminderId: reminder.id,
       occurrenceId: occ.id,
       channel: "push",
@@ -295,11 +295,11 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
       escalationLevel: 0,
     });
 
-    const notifications = db.listNotifications(reminder.id);
+    const notifications = await db.listNotifications(reminder.id);
     expect(notifications).toHaveLength(1);
     expect(notifications[0].outcome).toBe("not_configured");
 
-    const history = db.listHistory(reminder.id);
+    const history = await db.listHistory(reminder.id);
     const notifiedEntry = history.find((h) => h.action === "notified");
     expect(notifiedEntry).toBeTruthy();
     expect(notifiedEntry!.detail).toContain("not_configured");

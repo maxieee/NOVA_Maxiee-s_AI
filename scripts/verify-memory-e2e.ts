@@ -54,11 +54,11 @@ async function main() {
   let { db } = await import("../lib/db");
   const { checkMemorySafety } = await import("../lib/memory/safety");
 
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
   const safety = checkMemorySafety("preferred reminder time", "18:00");
   check("safety gate allows an ordinary memory", safety.ok);
 
-  const entry = db.addPersonalContext(userId, {
+  const entry = await db.addPersonalContext(userId, {
     category: "reminder_preference",
     label: "preferred reminder time",
     value: "18:00",
@@ -70,7 +70,7 @@ async function main() {
   console.log("\n=== Step 2: simulate a restart — reopen the same scratch DB path ===");
   resetModuleCache();
   ({ db } = await import("../lib/db"));
-  const reloaded = db.listPersonalContext(userId).find((e) => e.id === entry.id);
+  const reloaded = (await db.listPersonalContext(userId)).find((e) => e.id === entry.id);
   check("memory survives a simulated restart", Boolean(reloaded), JSON.stringify(reloaded));
   check("category/label/value round-tripped", reloaded?.category === "reminder_preference" && reloaded?.value === "18:00");
 
@@ -86,7 +86,7 @@ async function main() {
     now
   );
   console.log(`  NOVA: ${noTimeReply.reply}`);
-  const noTimeReminder = db.listReminders(userId).find((r) => r.title.toLowerCase().includes("water the plants"));
+  const noTimeReminder = (await db.listReminders(userId)).find((r) => r.title.toLowerCase().includes("water the plants"));
   check("unspecified time falls back to the memory (18:00)", noTimeReminder?.time === "18:00", noTimeReminder?.time ?? "null");
 
   const explicitTimeReply = await handleAssistantMessage(
@@ -95,7 +95,7 @@ async function main() {
     now
   );
   console.log(`  NOVA: ${explicitTimeReply.reply}`);
-  const explicitTimeReminder = db.listReminders(userId).find((r) => r.title.toLowerCase().includes("feed the cat"));
+  const explicitTimeReminder = (await db.listReminders(userId)).find((r) => r.title.toLowerCase().includes("feed the cat"));
   check(
     "explicit current instruction (7am) wins over the memory",
     explicitTimeReminder?.time === "07:00",
@@ -103,10 +103,10 @@ async function main() {
   );
 
   console.log("\n=== Step 4: deactivate the memory, confirm it's no longer retrieved ===");
-  db.updatePersonalContext(entry.id, { active: false });
-  const afterDeactivate = db.listPersonalContext(userId).find((e) => e.id === entry.id);
+  await db.updatePersonalContext(entry.id, { active: false });
+  const afterDeactivate = (await db.listPersonalContext(userId)).find((e) => e.id === entry.id);
   check("memory no longer appears in the active list", afterDeactivate === undefined);
-  const stillExists = db.listPersonalContext(userId, { includeInactive: true }).find((e) => e.id === entry.id);
+  const stillExists = (await db.listPersonalContext(userId, { includeInactive: true })).find((e) => e.id === entry.id);
   check("memory's history is kept, not hard-deleted", stillExists?.active === false);
 
   const afterDeactivateReply = await handleAssistantMessage(
@@ -115,9 +115,9 @@ async function main() {
     now
   );
   console.log(`  NOVA: ${afterDeactivateReply.reply}`);
-  const afterDeactivateReminder = db
-    .listReminders(userId)
-    .find((r) => r.title.toLowerCase().includes("walk the dog"));
+  const afterDeactivateReminder = (await db.listReminders(userId)).find((r) =>
+    r.title.toLowerCase().includes("walk the dog")
+  );
   check(
     "deactivated memory no longer used — falls back to structured default (09:00)",
     afterDeactivateReminder?.time === "09:00",

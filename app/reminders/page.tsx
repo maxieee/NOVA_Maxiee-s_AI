@@ -14,8 +14,8 @@ export default async function RemindersPage({
   searchParams: Promise<{ type?: string }>;
 }) {
   const { type } = await searchParams;
-  const userId = db.getCurrentUserId();
-  const reminders = db.listReminders(userId, {
+  const userId = await db.getCurrentUserId();
+  const reminders = await db.listReminders(userId, {
     types: type ? [type as ReminderTypeKey] : undefined,
   });
 

@@ -47,7 +47,7 @@ function sleep(ms: number) {
 async function backdateToNow(reminderId: string) {
   const { db } = await import("../lib/db");
   const Database = (await import("better-sqlite3")).default;
-  const occ = db.listOccurrences(reminderId)[0];
+  const occ = (await db.listOccurrences(reminderId))[0];
   const past = new Date(Date.now() - 60_000).toISOString();
   const sqlite = new Database(DB_PATH);
   sqlite.prepare(`update reminder_occurrences set scheduled_for = ? where id = ?`).run(past, occ.id);
@@ -59,7 +59,7 @@ async function main() {
   const { scanAndProcessDueReminders } = await import("../lib/scheduling/dueScan");
 
   console.log("=".repeat(20), "PART A: honest not_configured path (real env, no monkey-patching)", "=".repeat(20));
-  const honest = db.createReminder(db.getCurrentUserId(), {
+  const honest = await db.createReminder(await db.getCurrentUserId(), {
     title: "Honest unconfigured-channel test",
     date: new Date().toISOString().slice(0, 10),
     time: "00:00",
@@ -74,7 +74,7 @@ async function main() {
     "run 1 (unconfigured push):",
     r.find((x) => x.reminderId === honest.id)
   );
-  console.log("occurrence:", pick(db.listOccurrences(honest.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(honest.id))[0]));
   r = await scanAndProcessDueReminders();
   console.log(
     "run 2 immediately after (idempotent no-op):",
@@ -97,7 +97,7 @@ async function main() {
   const originalSendPush = webpushProvider.sendPush;
   webpushProvider.sendPush = async () => ({ outcome: "sent" as const, detail: "(simulated for e2e demo)" });
 
-  const reminder = db.createReminder(db.getCurrentUserId(), {
+  const reminder = await db.createReminder(await db.getCurrentUserId(), {
     title: "E2E full-lifecycle test",
     date: new Date().toISOString().slice(0, 10),
     time: "00:00",
@@ -112,30 +112,30 @@ async function main() {
   console.log("\n--- Run 1: due -> initial notification sent ---");
   r = await scanAndProcessDueReminders();
   console.log(r.find((x) => x.reminderId === reminder.id));
-  console.log("occurrence:", pick(db.listOccurrences(reminder.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(reminder.id))[0]));
 
   console.log("\n--- Run 2 (immediately after): idempotent no-op, same attempt count ---");
   r = await scanAndProcessDueReminders();
   console.log(r.find((x) => x.reminderId === reminder.id));
-  console.log("occurrence:", pick(db.listOccurrences(reminder.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(reminder.id))[0]));
 
   console.log("\n--- Waiting 4s for the follow-up window (NOVA_FOLLOWUP_SECONDS_NORMAL=3) ---");
   await sleep(4000);
   console.log("--- Run 3: follow-up fires ---");
   r = await scanAndProcessDueReminders();
   console.log(r.find((x) => x.reminderId === reminder.id));
-  console.log("occurrence:", pick(db.listOccurrences(reminder.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(reminder.id))[0]));
 
   console.log("\n--- Waiting 4s again for escalation threshold (NOVA_ESCALATE_AFTER_NORMAL=2) ---");
   await sleep(4000);
   console.log("--- Run 4: escalates ---");
   r = await scanAndProcessDueReminders();
   console.log(r.find((x) => x.reminderId === reminder.id));
-  console.log("occurrence:", pick(db.listOccurrences(reminder.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(reminder.id))[0]));
 
-  console.log("\n--- Calling the DONE path (db.completeReminder, same as POST /api/reminders/[id]/done) ---");
-  db.completeReminder(reminder.id);
-  console.log("occurrence:", pick(db.listOccurrences(reminder.id)[0]));
+  console.log("\n--- Calling the DONE path (await db.completeReminder, same as POST /api/reminders/[id]/done) ---");
+  await db.completeReminder(reminder.id);
+  console.log("occurrence:", pick((await db.listOccurrences(reminder.id))[0]));
 
   await sleep(1000);
   console.log("\n--- Run 5 (after done): confirms zero further attempts ---");
@@ -143,9 +143,9 @@ async function main() {
   console.log(r.find((x) => x.reminderId === reminder.id) ?? "(no entry — occurrence excluded, already acknowledged)");
 
   console.log("\n--- notifications log for this reminder ---");
-  console.log(db.listNotifications(reminder.id));
+  console.log(await db.listNotifications(reminder.id));
   console.log("\n--- reminder_history for this reminder ---");
-  console.log(db.listHistory(reminder.id));
+  console.log(await db.listHistory(reminder.id));
 
   webpushProvider.sendPush = originalSendPush;
 }

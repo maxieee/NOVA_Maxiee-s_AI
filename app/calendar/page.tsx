@@ -21,8 +21,8 @@ export default async function CalendarPage({
   const year = y ? parseInt(y, 10) : now.getFullYear();
   const month = m ? parseInt(m, 10) : now.getMonth();
 
-  const userId = db.getCurrentUserId();
-  const reminders = db.listReminders(userId);
+  const userId = await db.getCurrentUserId();
+  const reminders = await db.listReminders(userId);
 
   const prev = month === 0 ? { y: year - 1, m: 11 } : { y: year, m: month - 1 };
   const next = month === 11 ? { y: year + 1, m: 0 } : { y: year, m: month + 1 };

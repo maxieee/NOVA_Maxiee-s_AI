@@ -5,17 +5,19 @@ import { generateReminderForCycle } from "@/lib/scheduling/paymentReminders";
 import type { PaymentAccountInput } from "@/types/reminder";
 
 export async function GET() {
-  const userId = db.getCurrentUserId();
-  const accounts = db.listPaymentAccounts(userId);
-  const withCycles = accounts.map((account) => ({
-    account,
-    cycles: db.listPaymentCycles(account.id),
-  }));
+  const userId = await db.getCurrentUserId();
+  const accounts = await db.listPaymentAccounts(userId);
+  const withCycles = await Promise.all(
+    accounts.map(async (account) => ({
+      account,
+      cycles: await db.listPaymentCycles(account.id),
+    }))
+  );
   return NextResponse.json({ accounts: withCycles });
 }
 
 export async function POST(req: NextRequest) {
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
   const body = (await req.json().catch(() => null)) as Partial<PaymentAccountInput> | null;
 
   if (!body?.name || !body.payment_type || !body.due_date_rule) {
@@ -42,14 +44,14 @@ export async function POST(req: NextRequest) {
     escalation_enabled: body.escalation_enabled ?? true,
   };
 
-  const account = db.createPaymentAccount(userId, input);
+  const account = await db.createPaymentAccount(userId, input);
 
   // Immediately generate the first cycle + its reminder so the account
   // shows up with a real next-due-date right away, rather than waiting
   // for the next cron tick.
-  const preferences = db.getPreferences(userId);
-  const cycle = ensureUpcomingCycle(account);
-  generateReminderForCycle(cycle, account, userId, preferences.preferred_channels, preferences.default_intensity);
+  const preferences = await db.getPreferences(userId);
+  const cycle = await ensureUpcomingCycle(account);
+  await generateReminderForCycle(cycle, account, userId, preferences.preferred_channels, preferences.default_intensity);
 
-  return NextResponse.json({ account, cycle: db.getPaymentCycle(cycle.id) }, { status: 201 });
+  return NextResponse.json({ account, cycle: await db.getPaymentCycle(cycle.id) }, { status: 201 });
 }

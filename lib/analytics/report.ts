@@ -47,9 +47,9 @@ export interface AnalyticsReport {
  * (ensureRecommendation is an insert-if-absent — it never touches a row a
  * human already applied or dismissed).
  */
-export function buildAnalyticsReport(userId: string, now: Date = new Date()): AnalyticsReport {
+export async function buildAnalyticsReport(userId: string, now: Date = new Date()): Promise<AnalyticsReport> {
   const since = new Date(now.getTime() - ANALYTICS_WINDOW_DAYS * 86_400_000).toISOString();
-  const snapshot = db.getAnalyticsSnapshot(userId, since);
+  const snapshot = await db.getAnalyticsSnapshot(userId, since);
 
   const completion = computeCompletionMetrics(snapshot.reminders, now);
   const snooze = computeSnoozeMetrics(snapshot.reminders, snapshot.occurrences, snapshot.history);
@@ -69,12 +69,12 @@ export function buildAnalyticsReport(userId: string, now: Date = new Date()): An
 
   const rawRecommendations = computeRescheduleRecommendations(snooze.perReminder);
 
-  const existingStates = new Map(db.listRecommendationStates(userId).map((r) => [r.id, r]));
+  const existingStates = new Map((await db.listRecommendationStates(userId)).map((r) => [r.id, r]));
   const recommendations: RecommendationWithStatus[] = [];
   for (const rec of rawRecommendations) {
     const existing = existingStates.get(rec.id);
     if (!existing) {
-      db.ensureRecommendation(userId, rec.id, {
+      await db.ensureRecommendation(userId, rec.id, {
         type: rec.type,
         subjectType: rec.subjectType,
         subjectId: rec.subjectId,

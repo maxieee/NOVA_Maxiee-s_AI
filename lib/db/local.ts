@@ -11,7 +11,6 @@ import type {
   ReminderOccurrence,
   ReminderHistoryEntry,
   ReminderTypeKey,
-  UserPreferences,
   UserPreferencesUpdate,
   PaymentDetails,
   CallDetails,
@@ -40,7 +39,6 @@ import type {
   AnalyticsRecommendationStatus,
   NotificationLogEntry,
 } from "@/types/reminder";
-import type { AnalyticsSnapshot } from "./types";
 import { seedIfEmpty } from "./seed-data";
 
 const DEFAULT_DB_PATH = path.join(process.cwd(), "database", "nova.sqlite");
@@ -176,13 +174,13 @@ function rowToReminder(db: Database.Database, row: any): Reminder {
 }
 
 class LocalDataLayer implements DataLayer {
-  getCurrentUserId(): string {
+  async getCurrentUserId() {
     const db = getDb();
     const row = db.prepare(`select id from users limit 1`).get() as { id: string };
     return row.id;
   }
 
-  getPreferences(userId: string): UserPreferences {
+  async getPreferences(userId: string) {
     const db = getDb();
     const row = db
       .prepare(`select * from user_preferences where user_id = ?`)
@@ -217,7 +215,7 @@ class LocalDataLayer implements DataLayer {
     };
   }
 
-  updatePreferences(userId: string, update: UserPreferencesUpdate): UserPreferences {
+  async updatePreferences(userId: string, update: UserPreferencesUpdate) {
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -282,7 +280,7 @@ class LocalDataLayer implements DataLayer {
       tx();
     }
 
-    return this.getPreferences(userId);
+    return await this.getPreferences(userId);
   }
 
   private rowToPersonalContext(row: Record<string, unknown>): PersonalContextEntry {
@@ -292,7 +290,7 @@ class LocalDataLayer implements DataLayer {
     } as PersonalContextEntry;
   }
 
-  listPersonalContext(userId: string, options?: { includeInactive?: boolean }): PersonalContextEntry[] {
+  async listPersonalContext(userId: string, options?: { includeInactive?: boolean }) {
     const db = getDb();
     const rows = options?.includeInactive
       ? db
@@ -306,10 +304,10 @@ class LocalDataLayer implements DataLayer {
     return (rows as Record<string, unknown>[]).map((r) => this.rowToPersonalContext(r));
   }
 
-  addPersonalContext(
+  async addPersonalContext(
     userId: string,
     entry: { category?: string; label: string; value: string; source?: MemorySource }
-  ): PersonalContextEntry {
+  ) {
     const db = getDb();
     const id = newId();
     const now = new Date().toISOString();
@@ -322,10 +320,10 @@ class LocalDataLayer implements DataLayer {
     );
   }
 
-  updatePersonalContext(
+  async updatePersonalContext(
     id: string,
     changes: { category?: string; label?: string; value?: string; active?: boolean }
-  ): PersonalContextEntry | null {
+  ) {
     const db = getDb();
     const now = new Date().toISOString();
     const existing = db.prepare(`select * from personal_context_entries where id = ?`).get(id) as
@@ -347,12 +345,12 @@ class LocalDataLayer implements DataLayer {
     );
   }
 
-  deletePersonalContext(id: string): void {
+  async deletePersonalContext(id: string) {
     const db = getDb();
     db.prepare(`delete from personal_context_entries where id = ?`).run(id);
   }
 
-  logNotification(args: {
+  async logNotification(args: {
     reminderId: string;
     occurrenceId: string;
     channel: NotificationChannel | "in_app";
@@ -361,7 +359,7 @@ class LocalDataLayer implements DataLayer {
     attemptNumber?: number;
     escalationLevel?: number;
     providerRef?: string | null;
-  }): void {
+  }) {
     const db = getDb();
     const now = new Date().toISOString();
     db.prepare(
@@ -392,14 +390,14 @@ class LocalDataLayer implements DataLayer {
     );
   }
 
-  listNotifications(reminderId: string) {
+  async listNotifications(reminderId: string) {
     const db = getDb();
     return db
       .prepare(`select * from notifications where reminder_id = ? order by sent_at desc`)
       .all(reminderId) as import("@/types/reminder").NotificationLogEntry[];
   }
 
-  listReminders(userId: string, filter?: ReminderFilter): Reminder[] {
+  async listReminders(userId: string, filter?: ReminderFilter) {
     const db = getDb();
     const rows = db
       .prepare(`select * from reminders where user_id = ? order by date asc, time asc`)
@@ -425,14 +423,14 @@ class LocalDataLayer implements DataLayer {
     return reminders;
   }
 
-  getReminder(id: string): Reminder | null {
+  async getReminder(id: string) {
     const db = getDb();
     const row = db.prepare(`select * from reminders where id = ?`).get(id) as any;
     if (!row) return null;
     return rowToReminder(db, row);
   }
 
-  createReminder(userId: string, input: ReminderInput): Reminder {
+  async createReminder(userId: string, input: ReminderInput) {
     const db = getDb();
     const id = newId();
     const now = new Date().toISOString();
@@ -544,10 +542,10 @@ class LocalDataLayer implements DataLayer {
 
     tx();
 
-    return this.getReminder(id)!;
+    return (await this.getReminder(id))!;
   }
 
-  updateReminderStatus(id: string, status: Reminder["status"]): void {
+  async updateReminderStatus(id: string, status: Reminder["status"]) {
     const db = getDb();
     const now = new Date().toISOString();
     if (status === "completed") {
@@ -559,7 +557,7 @@ class LocalDataLayer implements DataLayer {
     }
   }
 
-  rescheduleReminder(id: string, date: string, time: string | null): void {
+  async rescheduleReminder(id: string, date: string, time: string | null) {
     const db = getDb();
     db.prepare(`update reminders set date = ?, time = ?, updated_at = ? where id = ?`).run(
       date,
@@ -569,7 +567,7 @@ class LocalDataLayer implements DataLayer {
     );
   }
 
-  completeReminder(id: string): Reminder | null {
+  async completeReminder(id: string) {
     const db = getDb();
     const now = new Date().toISOString();
     const tx = db.transaction(() => {
@@ -591,10 +589,10 @@ class LocalDataLayer implements DataLayer {
       ).run(newId(), id, now);
     });
     tx();
-    return this.getReminder(id);
+    return await this.getReminder(id);
   }
 
-  snoozeReminder(id: string, minutes: number): Reminder | null {
+  async snoozeReminder(id: string, minutes: number) {
     const db = getDb();
     const now = new Date();
     const nextFire = new Date(now.getTime() + minutes * 60_000).toISOString();
@@ -620,10 +618,10 @@ class LocalDataLayer implements DataLayer {
       ).run(newId(), id, `Snoozed ${minutes}m`, now.toISOString());
     });
     tx();
-    return this.getReminder(id);
+    return await this.getReminder(id);
   }
 
-  listOccurrences(reminderId: string): ReminderOccurrence[] {
+  async listOccurrences(reminderId: string) {
     const db = getDb();
     return db
       .prepare(`select * from reminder_occurrences where reminder_id = ? order by scheduled_for asc`)
@@ -631,7 +629,7 @@ class LocalDataLayer implements DataLayer {
       .map((r: any) => ({ ...r, escalated: !!r.escalated }));
   }
 
-  listUpcomingOccurrences(userId: string): (ReminderOccurrence & { reminder: Reminder })[] {
+  async listUpcomingOccurrences(userId: string) {
     const db = getDb();
     const rows = db
       .prepare(
@@ -642,16 +640,17 @@ class LocalDataLayer implements DataLayer {
       )
       .all(userId) as any[];
 
-    return rows
-      .map((row) => {
-        const reminder = this.getReminder(row.reminder_id);
+    const withReminders = await Promise.all(
+      rows.map(async (row) => {
+        const reminder = await this.getReminder(row.reminder_id);
         if (!reminder) return null;
         return { ...row, escalated: !!row.escalated, reminder };
       })
-      .filter(Boolean) as (ReminderOccurrence & { reminder: Reminder })[];
+    );
+    return withReminders.filter(Boolean) as (ReminderOccurrence & { reminder: Reminder })[];
   }
 
-  addOccurrence(reminderId: string, scheduledFor: string): ReminderOccurrence {
+  async addOccurrence(reminderId: string, scheduledFor: string) {
     const db = getDb();
     const id = newId();
     db.prepare(
@@ -660,7 +659,7 @@ class LocalDataLayer implements DataLayer {
     return db.prepare(`select * from reminder_occurrences where id = ?`).get(id) as ReminderOccurrence;
   }
 
-  markOccurrenceNotified(occurrenceId: string, escalated: boolean): void {
+  async markOccurrenceNotified(occurrenceId: string, escalated: boolean) {
     const db = getDb();
     db.prepare(
       `update reminder_occurrences
@@ -669,7 +668,7 @@ class LocalDataLayer implements DataLayer {
     ).run(new Date().toISOString(), escalated ? 1 : 0, occurrenceId);
   }
 
-  updateOccurrenceFollowUp(
+  async updateOccurrenceFollowUp(
     occurrenceId: string,
     fields: Partial<{
       follow_up_state: string;
@@ -678,7 +677,7 @@ class LocalDataLayer implements DataLayer {
       last_notified_at: string | null;
       next_follow_up_at: string | null;
     }>
-  ): void {
+  ) {
     const db = getDb();
     const columns = Object.keys(fields);
     if (columns.length === 0) return;
@@ -689,7 +688,7 @@ class LocalDataLayer implements DataLayer {
     });
   }
 
-  stopOccurrenceFollowUp(reminderId: string, state: "completed" | "cancelled"): void {
+  async stopOccurrenceFollowUp(reminderId: string, state: "completed" | "cancelled") {
     const db = getDb();
     db.prepare(
       `update reminder_occurrences
@@ -698,29 +697,29 @@ class LocalDataLayer implements DataLayer {
     ).run(state, reminderId);
   }
 
-  listHistory(reminderId: string): ReminderHistoryEntry[] {
+  async listHistory(reminderId: string) {
     const db = getDb();
     return db
       .prepare(`select * from reminder_history where reminder_id = ? order by created_at desc`)
       .all(reminderId) as ReminderHistoryEntry[];
   }
 
-  addHistory(
+  async addHistory(
     reminderId: string,
     action: ReminderHistoryEntry["action"],
     detail?: string,
     occurrenceId?: string
-  ): void {
+  ) {
     const db = getDb();
     db.prepare(
       `insert into reminder_history (id, reminder_id, action, detail, created_at, occurrence_id) values (?, ?, ?, ?, ?, ?)`
     ).run(newId(), reminderId, action, detail ?? null, new Date().toISOString(), occurrenceId ?? null);
   }
 
-  upsertPushSubscription(
+  async upsertPushSubscription(
     userId: string,
     sub: { endpoint: string; p256dh: string; auth: string }
-  ): PushSubscriptionRecord {
+  ) {
     const db = getDb();
     const now = new Date().toISOString();
     const existing = db
@@ -751,7 +750,7 @@ class LocalDataLayer implements DataLayer {
     return { ...row, active: !!row.active };
   }
 
-  listActivePushSubscriptions(userId: string): PushSubscriptionRecord[] {
+  async listActivePushSubscriptions(userId: string) {
     const db = getDb();
     const rows = db
       .prepare(`select * from push_subscriptions where user_id = ? and active = 1`)
@@ -759,14 +758,14 @@ class LocalDataLayer implements DataLayer {
     return rows.map((r) => this.rowToPushSubscription(r));
   }
 
-  deactivatePushSubscription(endpoint: string): void {
+  async deactivatePushSubscription(endpoint: string) {
     const db = getDb();
     db.prepare(
       `update push_subscriptions set active = 0, updated_at = ? where endpoint = ?`
     ).run(new Date().toISOString(), endpoint);
   }
 
-  recordPushFailure(endpoint: string): void {
+  async recordPushFailure(endpoint: string) {
     const db = getDb();
     db.prepare(
       `update push_subscriptions
@@ -817,20 +816,20 @@ class LocalDataLayer implements DataLayer {
     };
   }
 
-  listPaymentAccounts(userId: string): PaymentAccount[] {
+  async listPaymentAccounts(userId: string) {
     const db = getDb();
     return (
       db.prepare(`select * from payment_accounts where user_id = ? order by created_at desc`).all(userId) as any[]
     ).map((r) => this.rowToPaymentAccount(r));
   }
 
-  getPaymentAccount(id: string): PaymentAccount | null {
+  async getPaymentAccount(id: string) {
     const db = getDb();
     const row = db.prepare(`select * from payment_accounts where id = ?`).get(id) as any;
     return row ? this.rowToPaymentAccount(row) : null;
   }
 
-  createPaymentAccount(userId: string, input: PaymentAccountInput): PaymentAccount {
+  async createPaymentAccount(userId: string, input: PaymentAccountInput) {
     const db = getDb();
     const id = newId();
     const now = new Date().toISOString();
@@ -864,12 +863,12 @@ class LocalDataLayer implements DataLayer {
       created_at: now,
       updated_at: now,
     });
-    return this.getPaymentAccount(id)!;
+    return (await this.getPaymentAccount(id))!;
   }
 
-  updatePaymentAccount(id: string, update: PaymentAccountUpdate): PaymentAccount | null {
+  async updatePaymentAccount(id: string, update: PaymentAccountUpdate) {
     const db = getDb();
-    const existing = this.getPaymentAccount(id);
+    const existing = await this.getPaymentAccount(id);
     if (!existing) return null;
     const now = new Date().toISOString();
 
@@ -904,20 +903,20 @@ class LocalDataLayer implements DataLayer {
         params
       );
     }
-    return this.getPaymentAccount(id);
+    return await this.getPaymentAccount(id);
   }
 
-  setPaymentAccountActive(id: string, active: boolean): PaymentAccount | null {
+  async setPaymentAccountActive(id: string, active: boolean) {
     const db = getDb();
     db.prepare(`update payment_accounts set active = ?, updated_at = ? where id = ?`).run(
       active ? 1 : 0,
       new Date().toISOString(),
       id
     );
-    return this.getPaymentAccount(id);
+    return await this.getPaymentAccount(id);
   }
 
-  listPaymentCycles(accountId: string): PaymentCycle[] {
+  async listPaymentCycles(accountId: string) {
     const db = getDb();
     return (
       db
@@ -926,13 +925,13 @@ class LocalDataLayer implements DataLayer {
     ).map((r) => this.rowToPaymentCycle(r));
   }
 
-  getPaymentCycle(id: string): PaymentCycle | null {
+  async getPaymentCycle(id: string) {
     const db = getDb();
     const row = db.prepare(`select * from payment_cycles where id = ?`).get(id) as any;
     return row ? this.rowToPaymentCycle(row) : null;
   }
 
-  getPaymentCycleByPeriod(accountId: string, cyclePeriod: string): PaymentCycle | null {
+  async getPaymentCycleByPeriod(accountId: string, cyclePeriod: string) {
     const db = getDb();
     const row = db
       .prepare(`select * from payment_cycles where payment_account_id = ? and cycle_period = ?`)
@@ -940,10 +939,10 @@ class LocalDataLayer implements DataLayer {
     return row ? this.rowToPaymentCycle(row) : null;
   }
 
-  createPaymentCycle(
+  async createPaymentCycle(
     accountId: string,
     fields: { cyclePeriod: string; statementDate: string; dueDate: string; amount: number; minimumAmount: number | null }
-  ): PaymentCycle {
+  ) {
     const db = getDb();
     // Idempotency: unique(payment_account_id, cycle_period) — "insert or
     // ignore" then re-read, so calling this twice for the same period never
@@ -965,10 +964,10 @@ class LocalDataLayer implements DataLayer {
       now,
       now
     );
-    return this.getPaymentCycleByPeriod(accountId, fields.cyclePeriod)!;
+    return (await this.getPaymentCycleByPeriod(accountId, fields.cyclePeriod))!;
   }
 
-  linkPaymentCycleReminder(cycleId: string, reminderId: string): void {
+  async linkPaymentCycleReminder(cycleId: string, reminderId: string) {
     const db = getDb();
     db.prepare(`update payment_cycles set reminder_id = ?, updated_at = ? where id = ?`).run(
       reminderId,
@@ -977,7 +976,7 @@ class LocalDataLayer implements DataLayer {
     );
   }
 
-  updatePaymentCycleStatus(cycleId: string, status: PaymentCycle["status"]): void {
+  async updatePaymentCycleStatus(cycleId: string, status: PaymentCycle["status"]) {
     const db = getDb();
     db.prepare(`update payment_cycles set status = ?, updated_at = ? where id = ? and status != 'paid'`).run(
       status,
@@ -986,28 +985,36 @@ class LocalDataLayer implements DataLayer {
     );
   }
 
-  markPaymentCyclePaid(cycleId: string): PaymentCycle | null {
+  async markPaymentCyclePaid(cycleId: string) {
     const db = getDb();
-    const existing = this.getPaymentCycle(cycleId);
+    const existing = await this.getPaymentCycle(cycleId);
     if (!existing) return null;
     // Idempotent: calling this twice on an already-paid cycle is a no-op.
     if (existing.status === "paid") return existing;
     const now = new Date().toISOString();
+    // The status flip itself is done in a single synchronous better-sqlite3
+    // transaction (guarding against a concurrent flip within this process).
+    // completeReminder() is awaited immediately after: better-sqlite3
+    // transactions must be fully synchronous, so it cannot be nested inside
+    // db.transaction() now that it is async. This is safe for the local,
+    // single-process SQLite backend; the Postgres implementation performs
+    // the equivalent update and the reminder-completion side effects inside
+    // one real SQL transaction (see lib/db/supabase.ts).
     const tx = db.transaction(() => {
       db.prepare(`update payment_cycles set status = 'paid', paid_at = ?, updated_at = ? where id = ?`).run(
         now,
         now,
         cycleId
       );
-      // Reuse the EXISTING completeReminder path so the linked reminder's
-      // occurrence follow_up_state becomes "completed" and all future
-      // notifications stop — no new completion mechanism.
-      if (existing.reminder_id) {
-        this.completeReminder(existing.reminder_id);
-      }
     });
     tx();
-    return this.getPaymentCycle(cycleId);
+    // Reuse the EXISTING completeReminder path so the linked reminder's
+    // occurrence follow_up_state becomes "completed" and all future
+    // notifications stop — no new completion mechanism.
+    if (existing.reminder_id) {
+      await this.completeReminder(existing.reminder_id);
+    }
+    return await this.getPaymentCycle(cycleId);
   }
 
   // --- V8: Proactive Intelligence --------------------------------------
@@ -1027,12 +1034,12 @@ class LocalDataLayer implements DataLayer {
     };
   }
 
-  getLastProactiveNotification(
+  async getLastProactiveNotification(
     userId: string,
     ruleId: string,
     subjectType: string,
     subjectId: string
-  ): ProactiveNotificationRecord | null {
+  ) {
     const db = getDb();
     const row = db
       .prepare(
@@ -1044,7 +1051,7 @@ class LocalDataLayer implements DataLayer {
     return row ? this.rowToProactiveNotification(row) : null;
   }
 
-  logProactiveNotification(args: {
+  async logProactiveNotification(args: {
     userId: string;
     ruleId: string;
     subjectType: "reminder" | "payment_cycle" | "cluster";
@@ -1053,7 +1060,7 @@ class LocalDataLayer implements DataLayer {
     channel: NotificationChannel | null;
     message: string;
     outcome: ProactiveNotificationOutcome;
-  }): ProactiveNotificationRecord {
+  }) {
     const db = getDb();
     const id = newId();
     const now = new Date().toISOString();
@@ -1077,7 +1084,7 @@ class LocalDataLayer implements DataLayer {
     );
   }
 
-  listProactiveNotifications(userId: string, limit = 50): ProactiveNotificationRecord[] {
+  async listProactiveNotifications(userId: string, limit = 50) {
     const db = getDb();
     return (
       db
@@ -1088,7 +1095,7 @@ class LocalDataLayer implements DataLayer {
 
   // --- V11: Integrations + Automation ------------------------------------
 
-  wasCreatedByAutomation(reminderId: string): boolean {
+  async wasCreatedByAutomation(reminderId: string) {
     const db = getDb();
     const row = db.prepare(`select created_by_automation from reminders where id = ?`).get(reminderId) as
       | { created_by_automation: number }
@@ -1113,7 +1120,7 @@ class LocalDataLayer implements DataLayer {
     };
   }
 
-  getIntegrationAccount(userId: string, provider: IntegrationProvider): IntegrationAccountRecord | null {
+  async getIntegrationAccount(userId: string, provider: IntegrationProvider) {
     const db = getDb();
     const row = db
       .prepare(`select * from integration_accounts where user_id = ? and provider = ?`)
@@ -1121,7 +1128,7 @@ class LocalDataLayer implements DataLayer {
     return row ? this.rowToIntegrationAccount(row) : null;
   }
 
-  upsertIntegrationAccount(
+  async upsertIntegrationAccount(
     userId: string,
     provider: IntegrationProvider,
     fields: Partial<{
@@ -1133,9 +1140,9 @@ class LocalDataLayer implements DataLayer {
       last_sync_at: string | null;
       last_error: string | null;
     }>
-  ): IntegrationAccountRecord {
+  ) {
     const db = getDb();
-    const existing = this.getIntegrationAccount(userId, provider);
+    const existing = await this.getIntegrationAccount(userId, provider);
     const now = new Date().toISOString();
     if (!existing) {
       const id = newId();
@@ -1157,7 +1164,7 @@ class LocalDataLayer implements DataLayer {
         created_at: now,
         updated_at: now,
       });
-      return this.getIntegrationAccount(userId, provider)!;
+      return (await this.getIntegrationAccount(userId, provider))!;
     }
     const merged = { ...existing, ...fields, updated_at: now };
     db.prepare(
@@ -1165,7 +1172,7 @@ class LocalDataLayer implements DataLayer {
        expires_at = @expires_at, connected_at = @connected_at, last_sync_at = @last_sync_at, last_error = @last_error,
        updated_at = @updated_at where id = @id`
     ).run({ ...merged, id: existing.id });
-    return this.getIntegrationAccount(userId, provider)!;
+    return (await this.getIntegrationAccount(userId, provider))!;
   }
 
   private rowToAutomation(row: any): AutomationRecord {
@@ -1185,20 +1192,20 @@ class LocalDataLayer implements DataLayer {
     };
   }
 
-  listAutomations(userId: string): AutomationRecord[] {
+  async listAutomations(userId: string) {
     const db = getDb();
     return (
       db.prepare(`select * from automations where user_id = ? order by created_at desc`).all(userId) as any[]
     ).map((r) => this.rowToAutomation(r));
   }
 
-  getAutomation(id: string): AutomationRecord | null {
+  async getAutomation(id: string) {
     const db = getDb();
     const row = db.prepare(`select * from automations where id = ?`).get(id) as any;
     return row ? this.rowToAutomation(row) : null;
   }
 
-  createAutomation(userId: string, input: AutomationInput): AutomationRecord {
+  async createAutomation(userId: string, input: AutomationInput) {
     const db = getDb();
     const id = newId();
     const now = new Date().toISOString();
@@ -1219,15 +1226,15 @@ class LocalDataLayer implements DataLayer {
       created_at: now,
       updated_at: now,
     });
-    return this.getAutomation(id)!;
+    return (await this.getAutomation(id))!;
   }
 
-  updateAutomation(
+  async updateAutomation(
     id: string,
     changes: Partial<Pick<AutomationRecord, "name" | "enabled" | "trigger_config" | "condition_config" | "action_config">>
-  ): AutomationRecord | null {
+  ) {
     const db = getDb();
-    const existing = this.getAutomation(id);
+    const existing = await this.getAutomation(id);
     if (!existing) return null;
     const now = new Date().toISOString();
     const merged = {
@@ -1241,25 +1248,25 @@ class LocalDataLayer implements DataLayer {
       `update automations set name = @name, enabled = @enabled, trigger_config = @trigger_config,
        condition_config = @condition_config, action_config = @action_config, updated_at = @updated_at where id = @id`
     ).run({ ...merged, enabled: merged.enabled ? 1 : 0, updated_at: now, id });
-    return this.getAutomation(id);
+    return await this.getAutomation(id);
   }
 
-  deleteAutomation(id: string): void {
+  async deleteAutomation(id: string) {
     const db = getDb();
     db.prepare(`delete from automations where id = ?`).run(id);
   }
 
-  touchAutomationLastRun(id: string, at: string): void {
+  async touchAutomationLastRun(id: string, at: string) {
     const db = getDb();
     db.prepare(`update automations set last_run_at = ? where id = ?`).run(at, id);
   }
 
-  logAutomationRun(args: {
+  async logAutomationRun(args: {
     automationId: string;
     triggerContext?: string | null;
     outcome: AutomationRunOutcome;
     detail?: string | null;
-  }): AutomationRunRecord {
+  }) {
     const db = getDb();
     const id = newId();
     const now = new Date().toISOString();
@@ -1278,7 +1285,7 @@ class LocalDataLayer implements DataLayer {
     return db.prepare(`select * from automation_runs where id = ?`).get(id) as AutomationRunRecord;
   }
 
-  listAutomationRuns(automationId: string, limit = 50): AutomationRunRecord[] {
+  async listAutomationRuns(automationId: string, limit = 50) {
     const db = getDb();
     return db
       .prepare(`select * from automation_runs where automation_id = ? order by triggered_at desc limit ?`)
@@ -1287,7 +1294,7 @@ class LocalDataLayer implements DataLayer {
 
   // --- V12: Analytics ---------------------------------------------------
 
-  getAnalyticsSnapshot(userId: string, sinceISO: string): AnalyticsSnapshot {
+  async getAnalyticsSnapshot(userId: string, sinceISO: string) {
     const db = getDb();
 
     const reminders = (
@@ -1356,18 +1363,18 @@ class LocalDataLayer implements DataLayer {
     return { reminders, occurrences, notifications, history, paymentCycles, automationRuns, proactiveNotifications };
   }
 
-  listRecommendationStates(userId: string): AnalyticsRecommendationRecord[] {
+  async listRecommendationStates(userId: string) {
     const db = getDb();
     return db
       .prepare(`select * from analytics_recommendations where user_id = ?`)
       .all(userId) as AnalyticsRecommendationRecord[];
   }
 
-  ensureRecommendation(
+  async ensureRecommendation(
     userId: string,
     id: string,
     fields: { type: string; subjectType: string; subjectId: string; payload: string }
-  ): void {
+  ) {
     const db = getDb();
     const now = new Date().toISOString();
     db.prepare(
@@ -1377,7 +1384,7 @@ class LocalDataLayer implements DataLayer {
     ).run(id, userId, fields.type, fields.subjectType, fields.subjectId, fields.payload, now, now);
   }
 
-  setRecommendationStatus(id: string, status: AnalyticsRecommendationStatus): AnalyticsRecommendationRecord | null {
+  async setRecommendationStatus(id: string, status: AnalyticsRecommendationStatus) {
     const db = getDb();
     db.prepare(`update analytics_recommendations set status = ?, updated_at = ? where id = ?`).run(
       status,

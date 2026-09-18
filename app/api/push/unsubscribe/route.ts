@@ -7,6 +7,6 @@ export async function POST(req: NextRequest) {
   if (typeof endpoint !== "string" || !endpoint) {
     return NextResponse.json({ error: "Missing endpoint." }, { status: 400 });
   }
-  db.deactivatePushSubscription(endpoint);
+  await db.deactivatePushSubscription(endpoint);
   return NextResponse.json({ unsubscribed: true });
 }

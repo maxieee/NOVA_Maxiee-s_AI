@@ -39,9 +39,9 @@ describe("Long-term memory integration", () => {
 
   it("creates a memory only from explicit input and round-trips category/source/active", async () => {
     const { db } = await import("../lib/db");
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
 
-    const entry = db.addPersonalContext(userId, {
+    const entry = await db.addPersonalContext(userId, {
       category: "reminder_preference",
       label: "preferred reminder time",
       value: "18:00",
@@ -52,26 +52,26 @@ describe("Long-term memory integration", () => {
     expect(entry.source).toBe("user_entered");
     expect(entry.active).toBe(true);
 
-    const all = db.listPersonalContext(userId);
+    const all = await db.listPersonalContext(userId);
     expect(all.find((e) => e.id === entry.id)).toBeTruthy();
   });
 
   it("deactivating a memory removes it from retrieval without deleting its history", async () => {
     const { db } = await import("../lib/db");
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
 
-    const entry = db.addPersonalContext(userId, {
+    const entry = await db.addPersonalContext(userId, {
       category: "reminder_preference",
       label: "preferred reminder time",
       value: "18:00",
     });
 
-    db.updatePersonalContext(entry.id, { active: false });
+    await db.updatePersonalContext(entry.id, { active: false });
 
-    const active = db.listPersonalContext(userId);
+    const active = await db.listPersonalContext(userId);
     expect(active.find((e) => e.id === entry.id)).toBeUndefined();
 
-    const all = db.listPersonalContext(userId, { includeInactive: true });
+    const all = await db.listPersonalContext(userId, { includeInactive: true });
     const found = all.find((e) => e.id === entry.id);
     expect(found).toBeTruthy();
     expect(found?.active).toBe(false);
@@ -80,9 +80,9 @@ describe("Long-term memory integration", () => {
   it("the assistant pipeline uses a stored memory as a fallback default, never as an override", async () => {
     const { db } = await import("../lib/db");
     const { handleAssistantMessage } = await import("../lib/assistant/pipeline");
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
 
-    db.addPersonalContext(userId, {
+    await db.addPersonalContext(userId, {
       category: "reminder_preference",
       label: "preferred reminder time",
       value: "18:00",
@@ -95,7 +95,7 @@ describe("Long-term memory integration", () => {
       new Date("2026-09-18T12:00:00")
     );
     expect(r1.reply).toMatch(/plants/i);
-    const created1 = db.listReminders(userId).find((r) => r.title.toLowerCase().includes("water the plants"));
+    const created1 = (await db.listReminders(userId)).find((r) => r.title.toLowerCase().includes("water the plants"));
     expect(created1?.time).toBe("18:00");
 
     // Explicit time given -> current instruction wins, memory ignored.
@@ -105,28 +105,28 @@ describe("Long-term memory integration", () => {
       new Date("2026-09-18T12:00:00")
     );
     expect(r2.reply).toMatch(/cat/i);
-    const created2 = db.listReminders(userId).find((r) => r.title.toLowerCase().includes("feed the cat"));
+    const created2 = (await db.listReminders(userId)).find((r) => r.title.toLowerCase().includes("feed the cat"));
     expect(created2?.time).toBe("07:00");
   });
 
   it("a deactivated memory is no longer used by the pipeline", async () => {
     const { db } = await import("../lib/db");
     const { handleAssistantMessage } = await import("../lib/assistant/pipeline");
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
 
-    const entry = db.addPersonalContext(userId, {
+    const entry = await db.addPersonalContext(userId, {
       category: "reminder_preference",
       label: "preferred reminder time",
       value: "18:00",
     });
-    db.updatePersonalContext(entry.id, { active: false });
+    await db.updatePersonalContext(entry.id, { active: false });
 
     await handleAssistantMessage(
       "remind me to walk the dog tomorrow",
       "mem-session-3",
       new Date("2026-09-18T12:00:00")
     );
-    const created = db.listReminders(userId).find((r) => r.title.toLowerCase().includes("walk the dog"));
+    const created = (await db.listReminders(userId)).find((r) => r.title.toLowerCase().includes("walk the dog"));
     // Falls through to the structured default (09:00), not the deactivated memory.
     expect(created?.time).toBe("09:00");
   });

@@ -10,9 +10,9 @@ export const dynamic = "force-dynamic";
  * embedding the whole manager, keeping Settings from getting crowded
  * (consistent with the project's existing card-per-concern pattern).
  */
-export default function AutomationsPage() {
-  const userId = db.getCurrentUserId();
-  const automations = db.listAutomations(userId);
+export default async function AutomationsPage() {
+  const userId = await db.getCurrentUserId();
+  const automations = await db.listAutomations(userId);
 
   return (
     <div>

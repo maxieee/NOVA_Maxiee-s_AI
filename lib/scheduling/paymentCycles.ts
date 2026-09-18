@@ -32,7 +32,7 @@ export function derivePaymentCycleStatus(dueDateISO: string, now: Date, currentS
  * constraint backs this up), so calling it any number of times for the
  * same "now" never creates duplicate cycles.
  */
-export function ensureUpcomingCycle(account: PaymentAccount, now: Date = new Date()): PaymentCycle {
+export async function ensureUpcomingCycle(account: PaymentAccount, now: Date = new Date()): Promise<PaymentCycle> {
   const statementDate = computeNextStatementDate(account.statement_date_rule, now);
   const dueDate = computeDueDateForStatement(
     statementDate,
@@ -42,10 +42,10 @@ export function ensureUpcomingCycle(account: PaymentAccount, now: Date = new Dat
   );
   const cyclePeriod = cyclePeriodFor(statementDate);
 
-  const existing = db.getPaymentCycleByPeriod(account.id, cyclePeriod);
+  const existing = await db.getPaymentCycleByPeriod(account.id, cyclePeriod);
   if (existing) return existing;
 
-  return db.createPaymentCycle(account.id, {
+  return await db.createPaymentCycle(account.id, {
     cyclePeriod,
     statementDate: toISODate(statementDate),
     dueDate: toISODate(dueDate),
@@ -59,9 +59,9 @@ export function ensureUpcomingCycle(account: PaymentAccount, now: Date = new Dat
  * upcoming cycle exists. Disabled accounts are skipped — disabling an
  * account stops future cycle/reminder generation without deleting history.
  */
-export function generateMissingCycles(userId: string, now: Date = new Date()): PaymentCycle[] {
-  const accounts = db.listPaymentAccounts(userId).filter((a) => a.active);
-  return accounts.map((a) => ensureUpcomingCycle(a, now));
+export async function generateMissingCycles(userId: string, now: Date = new Date()): Promise<PaymentCycle[]> {
+  const accounts = (await db.listPaymentAccounts(userId)).filter((a) => a.active);
+  return Promise.all(accounts.map((a) => ensureUpcomingCycle(a, now)));
 }
 
 /**
@@ -69,13 +69,13 @@ export function generateMissingCycles(userId: string, now: Date = new Date()): P
  * account belonging to the user, from due_date vs now. Never touches an
  * already-"paid" cycle.
  */
-export function refreshCycleStatuses(userId: string, now: Date = new Date()): void {
-  const accounts = db.listPaymentAccounts(userId);
+export async function refreshCycleStatuses(userId: string, now: Date = new Date()): Promise<void> {
+  const accounts = await db.listPaymentAccounts(userId);
   for (const account of accounts) {
-    for (const cycle of db.listPaymentCycles(account.id)) {
+    for (const cycle of await db.listPaymentCycles(account.id)) {
       const next = derivePaymentCycleStatus(cycle.due_date, now, cycle.status);
       if (next !== cycle.status) {
-        db.updatePaymentCycleStatus(cycle.id, next);
+        await db.updatePaymentCycleStatus(cycle.id, next);
       }
     }
   }

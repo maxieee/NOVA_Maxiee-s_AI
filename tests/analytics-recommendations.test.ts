@@ -66,9 +66,9 @@ describe("applyRecommendation / dismissRecommendation — real DB, proves nothin
   it("computing/generating a recommendation never mutates the reminder it's about", async () => {
     const { db } = await import("../lib/db");
     const { buildAnalyticsReport } = await import("../lib/analytics/report");
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
 
-    const reminder = db.createReminder(userId, {
+    const reminder = await db.createReminder(userId, {
       title: "Take vitamins",
       date: "2026-01-01",
       time: "08:00",
@@ -77,13 +77,13 @@ describe("applyRecommendation / dismissRecommendation — real DB, proves nothin
     });
 
     for (let i = 0; i < MIN_SNOOZE_COUNT; i++) {
-      db.snoozeReminder(reminder.id, 15);
+      await db.snoozeReminder(reminder.id, 15);
     }
 
-    const before = db.getReminder(reminder.id)!;
+    const before = (await db.getReminder(reminder.id))!;
     // Generating the report computes insights/recommendations from real data.
-    buildAnalyticsReport(userId);
-    const after = db.getReminder(reminder.id)!;
+    await buildAnalyticsReport(userId);
+    const after = (await db.getReminder(reminder.id))!;
 
     // Merely computing/persisting a pending recommendation row must not touch the reminder itself.
     expect(after.date).toBe(before.date);
@@ -91,12 +91,12 @@ describe("applyRecommendation / dismissRecommendation — real DB, proves nothin
     expect(after.updated_at).toBe(before.updated_at);
   });
 
-  it("apply actually reschedules via the existing db.rescheduleReminder path and marks the recommendation applied", async () => {
+  it("apply actually reschedules via the existing await db.rescheduleReminder path and marks the recommendation applied", async () => {
     const { db } = await import("../lib/db");
     const { applyRecommendation } = await import("../lib/analytics/apply");
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
 
-    const reminder = db.createReminder(userId, {
+    const reminder = await db.createReminder(userId, {
       title: "Take vitamins",
       date: "2026-01-01",
       time: "08:00",
@@ -105,33 +105,33 @@ describe("applyRecommendation / dismissRecommendation — real DB, proves nothin
     });
 
     const recId = `reschedule_default_time:${reminder.id}`;
-    db.ensureRecommendation(userId, recId, {
+    await db.ensureRecommendation(userId, recId, {
       type: "reschedule_default_time",
       subjectType: "reminder",
       subjectId: reminder.id,
       payload: JSON.stringify({ kind: "reschedule", reminderId: reminder.id, newTime: "09:00" }),
     });
 
-    const beforeApply = db.getReminder(reminder.id)!;
+    const beforeApply = (await db.getReminder(reminder.id))!;
     expect(beforeApply.time).toBe("08:00");
 
-    const applied = applyRecommendation(recId);
+    const applied = await applyRecommendation(recId);
     expect(applied?.status).toBe("applied");
 
-    const afterApply = db.getReminder(reminder.id)!;
+    const afterApply = (await db.getReminder(reminder.id))!;
     expect(afterApply.time).toBe("09:00");
 
     // Applying again is a no-op (already applied, not pending) — proves it never re-runs silently.
-    const secondCall = applyRecommendation(recId);
+    const secondCall = await applyRecommendation(recId);
     expect(secondCall?.status).toBe("applied");
   });
 
   it("dismiss marks the recommendation dismissed without touching the reminder", async () => {
     const { db } = await import("../lib/db");
     const { dismissRecommendation } = await import("../lib/analytics/apply");
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
 
-    const reminder = db.createReminder(userId, {
+    const reminder = await db.createReminder(userId, {
       title: "Take vitamins",
       date: "2026-01-01",
       time: "08:00",
@@ -140,17 +140,17 @@ describe("applyRecommendation / dismissRecommendation — real DB, proves nothin
     });
 
     const recId = `reschedule_default_time:${reminder.id}`;
-    db.ensureRecommendation(userId, recId, {
+    await db.ensureRecommendation(userId, recId, {
       type: "reschedule_default_time",
       subjectType: "reminder",
       subjectId: reminder.id,
       payload: JSON.stringify({ kind: "reschedule", reminderId: reminder.id, newTime: "09:00" }),
     });
 
-    const before = db.getReminder(reminder.id)!;
-    const dismissed = dismissRecommendation(recId);
+    const before = (await db.getReminder(reminder.id))!;
+    const dismissed = await dismissRecommendation(recId);
     expect(dismissed?.status).toBe("dismissed");
-    const after = db.getReminder(reminder.id)!;
+    const after = (await db.getReminder(reminder.id))!;
     expect(after.time).toBe(before.time);
   });
 });

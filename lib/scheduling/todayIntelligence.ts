@@ -151,7 +151,7 @@ function sortItems(items: TodayItem[]): TodayItem[] {
  * account/cycle data already loaded via the existing DataLayer.
  *
  * `paymentCyclesByAccount` maps payment_account_id -> that account's
- * payment_cycles (as returned by db.listPaymentCycles per account) so this
+ * payment_cycles (as returned by await db.listPaymentCycles per account) so this
  * function never touches the DB itself and stays pure/unit-testable.
  */
 export function buildTodayViewModel(

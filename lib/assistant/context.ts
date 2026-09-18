@@ -1,7 +1,7 @@
 // V7 — lightweight, short-term conversation context.
 //
 // DESIGN CHOICE (documented per V7 brief Phase 5): NOVA is a single-user,
-// unauthenticated local app (see V1-V6 — db.getCurrentUserId() is a fixed
+// unauthenticated local app (see V1-V6 — await db.getCurrentUserId() is a fixed
 // single user). A conversation's "what does 'it'/'that' refer to" state is
 // ephemeral turn-taking scratch space, not a durable fact worth persisting
 // — so this is a simple server-side in-memory Map keyed by sessionId, NOT

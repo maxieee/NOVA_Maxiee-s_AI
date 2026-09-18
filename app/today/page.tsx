@@ -22,26 +22,31 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default function TodayPage() {
-  const userId = db.getCurrentUserId();
-  const prefs = db.getPreferences(userId);
-  const reminders = db.listReminders(userId);
-  const paymentAccounts = db.listPaymentAccounts(userId);
+export default async function TodayPage() {
+  const userId = await db.getCurrentUserId();
+  const prefs = await db.getPreferences(userId);
+  const reminders = await db.listReminders(userId);
+  const paymentAccounts = await db.listPaymentAccounts(userId);
   const now = new Date();
 
   const cyclesByAccount = new Map<string, PaymentCycle[]>();
   for (const account of paymentAccounts) {
-    cyclesByAccount.set(account.id, db.listPaymentCycles(account.id));
+    cyclesByAccount.set(account.id, await db.listPaymentCycles(account.id));
   }
 
   const view = buildTodayViewModel(reminders, paymentAccounts, cyclesByAccount, now);
   const displayName = prefs.preferred_name || prefs.display_name;
 
-  function followUpFor(reminderId: string) {
-    const occs = db.listOccurrences(reminderId);
+  const followUpByReminder = new Map<string, { state: import("@/types/reminder").FollowUpState; lastNotifiedAt: string | null }>();
+  for (const reminder of reminders) {
+    const occs = await db.listOccurrences(reminder.id);
     const latest = occs.filter((o) => o.follow_up_state !== "pending" && o.follow_up_state !== "due").pop();
-    if (!latest) return null;
-    return { state: latest.follow_up_state, lastNotifiedAt: latest.last_notified_at ?? null };
+    if (latest) {
+      followUpByReminder.set(reminder.id, { state: latest.follow_up_state, lastNotifiedAt: latest.last_notified_at ?? null });
+    }
+  }
+  function followUpFor(reminderId: string) {
+    return followUpByReminder.get(reminderId) ?? null;
   }
 
   function renderItem(item: TodayItem) {

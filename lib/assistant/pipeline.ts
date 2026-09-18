@@ -17,13 +17,13 @@ export interface AssistantMessageResult {
 }
 
 export async function handleAssistantMessage(text: string, sessionId: string, now: Date = new Date()): Promise<AssistantMessageResult> {
-  const userId = db.getCurrentUserId();
-  const preferences = db.getPreferences(userId);
+  const userId = await db.getCurrentUserId();
+  const preferences = await db.getPreferences(userId);
   const context = getSessionContext(sessionId);
   // V9: long-term memory is consulted AFTER parsing, as a fallback-only
   // hint — see lib/assistant/validate.ts's fallbackReminderTime for the
   // precedence proof (current instruction > memory > nothing).
-  const memories = db.listPersonalContext(userId);
+  const memories = await db.listPersonalContext(userId);
 
   const parsed = parse(text, now, { recentTurns: context.recentTurns.map((t) => t.text) });
   const validated = validate(parsed, preferences, memories);

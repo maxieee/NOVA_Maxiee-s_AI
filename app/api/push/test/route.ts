@@ -8,7 +8,7 @@ import { sendPushToUser, isWebPushConfigured } from "@/lib/notifications/provide
  * succeeded — the response mirrors the real per-subscription outcomes.
  */
 export async function POST() {
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
 
   if (!isWebPushConfigured()) {
     return NextResponse.json(
@@ -17,7 +17,7 @@ export async function POST() {
     );
   }
 
-  const subscriptions = db.listActivePushSubscriptions(userId);
+  const subscriptions = await db.listActivePushSubscriptions(userId);
   if (subscriptions.length === 0) {
     return NextResponse.json(
       { ok: false, reason: "no_subscription", detail: "No active push subscription found for this browser." },

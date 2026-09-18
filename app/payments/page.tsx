@@ -27,22 +27,24 @@ const STATUS_CLASS: Record<PaymentCycleStatus, string> = {
   paid: "text-nova-good bg-nova-good/10 border-nova-good/30",
 };
 
-export default function PaymentsPage() {
-  const userId = db.getCurrentUserId();
-  const accounts = db.listPaymentAccounts(userId);
+export default async function PaymentsPage() {
+  const userId = await db.getCurrentUserId();
+  const accounts = await db.listPaymentAccounts(userId);
   const now = new Date();
 
   // Payment-account model: each account's next (non-paid) cycle, with a
   // freshly-derived display status (payment_cycles.status is also kept in
   // sync by the cron, but rendering never trusts a stale value).
-  const rows = accounts
-    .filter((a) => a.active)
-    .map((account) => {
-      const cycles = db.listPaymentCycles(account.id);
-      const next = cycles.find((c) => c.status !== "paid") ?? cycles[0] ?? null;
-      const status = next ? derivePaymentCycleStatus(next.due_date, now, next.status) : "upcoming";
-      return { account, cycle: next, status };
-    });
+  const rows = await Promise.all(
+    accounts
+      .filter((a) => a.active)
+      .map(async (account) => {
+        const cycles = await db.listPaymentCycles(account.id);
+        const next = cycles.find((c) => c.status !== "paid") ?? cycles[0] ?? null;
+        const status = next ? derivePaymentCycleStatus(next.due_date, now, next.status) : "upcoming";
+        return { account, cycle: next, status };
+      })
+  );
 
   const overdueCount = rows.filter((r) => r.status === "overdue").length;
   const dueTodayCount = rows.filter((r) => r.status === "due_today").length;
@@ -51,9 +53,9 @@ export default function PaymentsPage() {
 
   // Legacy ad-hoc "payment" reminders (created directly, not through a
   // payment account) — kept working exactly as before.
-  const adHocPayments = db
-    .listReminders(userId, { types: ["payment"] })
-    .filter((r) => !rows.some((row) => row.cycle?.reminder_id === r.id));
+  const adHocPayments = (await db.listReminders(userId, { types: ["payment"] })).filter(
+    (r) => !rows.some((row) => row.cycle?.reminder_id === r.id)
+  );
 
   return (
     <div>

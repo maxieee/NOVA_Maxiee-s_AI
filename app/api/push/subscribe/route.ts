@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error }, { status: 400 });
   }
 
-  const userId = db.getCurrentUserId();
-  const subscription = db.upsertPushSubscription(userId, {
+  const userId = await db.getCurrentUserId();
+  const subscription = await db.upsertPushSubscription(userId, {
     endpoint: body!.endpoint as string,
     p256dh: body!.keys!.p256dh as string,
     auth: body!.keys!.auth as string,

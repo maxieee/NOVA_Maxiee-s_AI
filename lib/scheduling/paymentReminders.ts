@@ -30,15 +30,15 @@ function categoryFor(paymentType: PaymentAccount["payment_type"]): PaymentDetail
  * Returns null when the account has reminders disabled (reminder_enabled
  * = false) — the cycle then simply has no reminder, by design.
  */
-export function generateReminderForCycle(
+export async function generateReminderForCycle(
   cycle: PaymentCycle,
   account: PaymentAccount,
   userId: string,
   preferredChannels: NotificationChannel[],
   defaultIntensity: Reminder["intensity"]
-): Reminder | null {
+): Promise<Reminder | null> {
   if (cycle.reminder_id) {
-    return db.getReminder(cycle.reminder_id);
+    return await db.getReminder(cycle.reminder_id);
   }
   if (!account.reminder_enabled) {
     return null;
@@ -62,7 +62,7 @@ export function generateReminderForCycle(
 
   const firstFire = schedule[0] ?? dueDate;
 
-  const reminder = db.createReminder(userId, {
+  const reminder = await db.createReminder(userId, {
     title: `${account.name} payment due`,
     description: account.issuer ? `${account.issuer} — ${account.name}` : account.name,
     date: toISODate(firstFire),
@@ -86,26 +86,26 @@ export function generateReminderForCycle(
   // Additional lead-time / due-date occurrences beyond the first, which
   // createReminder already scheduled.
   for (const fireAt of schedule.slice(1)) {
-    db.addOccurrence(reminder.id, fireAt.toISOString());
+    await db.addOccurrence(reminder.id, fireAt.toISOString());
   }
 
-  db.linkPaymentCycleReminder(cycle.id, reminder.id);
-  db.addHistory(reminder.id, "created", `Generated from payment cycle ${cycle.cycle_period} for ${account.name}`);
+  await db.linkPaymentCycleReminder(cycle.id, reminder.id);
+  await db.addHistory(reminder.id, "created", `Generated from payment cycle ${cycle.cycle_period} for ${account.name}`);
 
-  return db.getReminder(reminder.id);
+  return await db.getReminder(reminder.id);
 }
 
 /** Generates reminders for every cycle (of every active account) that lacks one — idempotent per cycle. */
-export function generateMissingReminders(
+export async function generateMissingReminders(
   userId: string,
   preferredChannels: NotificationChannel[],
   defaultIntensity: Reminder["intensity"]
-): void {
-  const accounts = db.listPaymentAccounts(userId);
+): Promise<void> {
+  const accounts = await db.listPaymentAccounts(userId);
   for (const account of accounts) {
-    for (const cycle of db.listPaymentCycles(account.id)) {
+    for (const cycle of await db.listPaymentCycles(account.id)) {
       if (!cycle.reminder_id) {
-        generateReminderForCycle(cycle, account, userId, preferredChannels, defaultIntensity);
+        await generateReminderForCycle(cycle, account, userId, preferredChannels, defaultIntensity);
       }
     }
   }

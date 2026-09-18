@@ -36,9 +36,9 @@ function configuredChannels(): NotificationChannel[] {
  * re-sends the same attempt.
  */
 export async function scanAndProcessDueReminders(now: Date = new Date()): Promise<DueScanResult[]> {
-  const userId = db.getCurrentUserId();
-  const preferences = db.getPreferences(userId);
-  const occurrences = db.listUpcomingOccurrences(userId);
+  const userId = await db.getCurrentUserId();
+  const preferences = await db.getPreferences(userId);
+  const occurrences = await db.listUpcomingOccurrences(userId);
   const available = configuredChannels();
   const provider = getNotificationProvider();
   const results: DueScanResult[] = [];
@@ -51,7 +51,7 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
     // state.
     if (reminder.status === "completed" || reminder.status === "cancelled") {
       if (occ.follow_up_state !== "completed" && occ.follow_up_state !== "cancelled") {
-        db.updateOccurrenceFollowUp(occ.id, {
+        await db.updateOccurrenceFollowUp(occ.id, {
           follow_up_state: reminder.status === "completed" ? "completed" : "cancelled",
           next_follow_up_at: null,
         });
@@ -81,7 +81,7 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
     }
 
     if (decision.type === "stop") {
-      db.updateOccurrenceFollowUp(occ.id, { follow_up_state: "completed", next_follow_up_at: null });
+      await db.updateOccurrenceFollowUp(occ.id, { follow_up_state: "completed", next_follow_up_at: null });
       results.push({ occurrenceId: occ.id, reminderId: reminder.id, action: "stopped", reason: decision.reason });
       continue;
     }
@@ -102,7 +102,7 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
           ? "notified"
           : "follow_up_sent";
 
-      db.updateOccurrenceFollowUp(occ.id, {
+      await db.updateOccurrenceFollowUp(occ.id, {
         follow_up_state: nextState,
         notification_attempt_count: attemptNumber,
         escalation_level: escalationLevel,
@@ -110,7 +110,7 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
         next_follow_up_at: nextFollowUpAt,
       });
       if (decision.isFirst || nextState === "notified" || nextState === "follow_up_sent") {
-        db.markOccurrenceNotified(occ.id, decision.escalated);
+        await db.markOccurrenceNotified(occ.id, decision.escalated);
       }
     } else {
       // Delivery genuinely failed / not configured: record the honest
@@ -119,13 +119,13 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
       // attempt the person never received. A short retry window is set
       // instead so the next cron run tries again soon rather than looping
       // every invocation.
-      db.updateOccurrenceFollowUp(occ.id, {
+      await db.updateOccurrenceFollowUp(occ.id, {
         follow_up_state: occ.notification_attempt_count === 0 ? "due" : occ.follow_up_state,
         next_follow_up_at: new Date(now.getTime() + 60_000).toISOString(),
       });
     }
 
-    db.logNotification({
+    await db.logNotification({
       reminderId: reminder.id,
       occurrenceId: occ.id,
       channel: decision.channel,

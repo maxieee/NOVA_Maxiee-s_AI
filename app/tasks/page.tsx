@@ -4,9 +4,9 @@ import { ReminderCard } from "@/components/reminders/ReminderCard";
 
 export const dynamic = "force-dynamic";
 
-export default function TasksPage() {
-  const userId = db.getCurrentUserId();
-  const tasks = db.listReminders(userId, { types: ["task"] });
+export default async function TasksPage() {
+  const userId = await db.getCurrentUserId();
+  const tasks = await db.listReminders(userId, { types: ["task"] });
   const open = tasks.filter((t) => t.status !== "completed" && t.status !== "cancelled");
   const done = tasks.filter((t) => t.status === "completed" || t.status === "cancelled");
 

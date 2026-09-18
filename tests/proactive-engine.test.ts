@@ -46,8 +46,8 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
     const { runProactiveIntelligence } = await import("../lib/proactive/engine");
     const { refreshCycleStatuses } = await import("../lib/scheduling/paymentCycles");
 
-    const userId = db.getCurrentUserId();
-    const account = db.createPaymentAccount(userId, {
+    const userId = await db.getCurrentUserId();
+    const account = await db.createPaymentAccount(userId, {
       name: "Test Card",
       payment_type: "CREDIT_CARD",
       issuer: null,
@@ -63,7 +63,7 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
       reminder_enabled: true,
       escalation_enabled: true,
     });
-    const cycle = db.createPaymentCycle(account.id, {
+    const cycle = await db.createPaymentCycle(account.id, {
       cyclePeriod: "2020-01",
       statementDate: "2020-01-01",
       dueDate: "2020-01-10", // long overdue relative to real "now"
@@ -78,7 +78,7 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
     expect(mine?.ruleId).toBe("payment_overdue");
     expect(mine?.outcome).toBe("not_configured"); // never fakes "sent"
 
-    const history = db.listProactiveNotifications(userId);
+    const history = await db.listProactiveNotifications(userId);
     expect(history.some((h) => h.subject_id === cycle.id && h.outcome === "not_configured")).toBe(true);
   });
 
@@ -87,8 +87,8 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
     const { runProactiveIntelligence } = await import("../lib/proactive/engine");
     const { refreshCycleStatuses } = await import("../lib/scheduling/paymentCycles");
 
-    const userId = db.getCurrentUserId();
-    const account = db.createPaymentAccount(userId, {
+    const userId = await db.getCurrentUserId();
+    const account = await db.createPaymentAccount(userId, {
       name: "Test Card",
       payment_type: "CREDIT_CARD",
       issuer: null,
@@ -104,7 +104,7 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
       reminder_enabled: true,
       escalation_enabled: true,
     });
-    db.createPaymentCycle(account.id, {
+    await db.createPaymentCycle(account.id, {
       cyclePeriod: "2020-01",
       statementDate: "2020-01-01",
       dueDate: "2020-01-10",
@@ -122,7 +122,7 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
     );
 
     // The history must reflect exactly one real logged attempt, not two.
-    const attempts = db.listProactiveNotifications(userId).filter((h) => h.rule_id === "payment_overdue");
+    const attempts = (await db.listProactiveNotifications(userId)).filter((h) => h.rule_id === "payment_overdue");
     expect(attempts).toHaveLength(1);
   });
 
@@ -131,13 +131,13 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
     const { runProactiveIntelligence } = await import("../lib/proactive/engine");
     const { refreshCycleStatuses } = await import("../lib/scheduling/paymentCycles");
 
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
     // now is fixed inside runProactiveIntelligence to real time; set a quiet
     // window that always contains "now" so this is deterministic regardless
     // of when the test runs.
     await db.updatePreferences(userId, { quiet_hours_start: "00:00", quiet_hours_end: "23:59" });
 
-    const account = db.createPaymentAccount(userId, {
+    const account = await db.createPaymentAccount(userId, {
       name: "Test Card",
       payment_type: "CREDIT_CARD",
       issuer: null,
@@ -153,7 +153,7 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
       reminder_enabled: true,
       escalation_enabled: true,
     });
-    db.createPaymentCycle(account.id, {
+    await db.createPaymentCycle(account.id, {
       cyclePeriod: "2020-01",
       statementDate: "2020-01-01",
       dueDate: "2020-01-10",
@@ -173,10 +173,10 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
     const { runProactiveIntelligence } = await import("../lib/proactive/engine");
     const { refreshCycleStatuses } = await import("../lib/scheduling/paymentCycles");
 
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
     await db.updatePreferences(userId, { proactive_intelligence_enabled: false });
 
-    const account = db.createPaymentAccount(userId, {
+    const account = await db.createPaymentAccount(userId, {
       name: "Test Card",
       payment_type: "CREDIT_CARD",
       issuer: null,
@@ -192,7 +192,7 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
       reminder_enabled: true,
       escalation_enabled: true,
     });
-    db.createPaymentCycle(account.id, {
+    await db.createPaymentCycle(account.id, {
       cyclePeriod: "2020-01",
       statementDate: "2020-01-01",
       dueDate: "2020-01-10",
@@ -209,9 +209,9 @@ describe("Proactive Intelligence engine — anti-spam + honest delivery", () => 
     const { db } = await import("../lib/db");
     const { runProactiveIntelligence } = await import("../lib/proactive/engine");
 
-    const userId = db.getCurrentUserId();
+    const userId = await db.getCurrentUserId();
     for (let i = 0; i < 4; i++) {
-      db.createReminder(userId, {
+      await db.createReminder(userId, {
         title: `Overdue task ${i}`,
         date: "2020-01-01",
         time: "09:00",

@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
  * insights, recommendations) to cram into a Settings card without
  * crowding it.
  */
-export default function AnalyticsPage() {
-  const userId = db.getCurrentUserId();
-  const report = buildAnalyticsReport(userId);
+export default async function AnalyticsPage() {
+  const userId = await db.getCurrentUserId();
+  const report = await buildAnalyticsReport(userId);
 
   return (
     <div>

@@ -33,10 +33,10 @@ async function main() {
   const { scanAndProcessDueReminders } = await import("../lib/scheduling/dueScan");
   const { runProactiveIntelligence } = await import("../lib/proactive/engine");
 
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
 
   console.log("=".repeat(20), "STEP 1: create a payment account with an already-overdue cycle", "=".repeat(20));
-  const account = db.createPaymentAccount(userId, {
+  const account = await db.createPaymentAccount(userId, {
     name: "Verify Card",
     payment_type: "CREDIT_CARD",
     issuer: "Chase",
@@ -52,7 +52,7 @@ async function main() {
     reminder_enabled: true,
     escalation_enabled: true,
   });
-  const cycle = db.createPaymentCycle(account.id, {
+  const cycle = await db.createPaymentCycle(account.id, {
     cyclePeriod: "2020-01",
     statementDate: "2020-01-01",
     dueDate: "2020-01-10", // long overdue relative to real "now"
@@ -64,16 +64,18 @@ async function main() {
 
   console.log("\n" + "=".repeat(20), "STEP 2: run the real cron path once", "=".repeat(20));
   async function cronOnce() {
-    generateMissingCycles(userId);
-    generateMissingReminders(userId, db.getPreferences(userId).preferred_channels, db.getPreferences(userId).default_intensity);
-    refreshCycleStatuses(userId);
+    await generateMissingCycles(userId);
+    const prefs = await db.getPreferences(userId);
+    await generateMissingReminders(userId, prefs.preferred_channels, prefs.default_intensity);
+    await refreshCycleStatuses(userId);
     const due = await scanAndProcessDueReminders();
     const proactive = await runProactiveIntelligence();
     return { due, proactive };
   }
 
   const run1 = await cronOnce();
-  console.log("cycle status after refresh:", db.getPaymentCycle(cycle.id)?.status);
+  const cycleAfterRefresh = await db.getPaymentCycle(cycle.id);
+  console.log("cycle status after refresh:", cycleAfterRefresh?.status);
   const overdueHit1 = run1.proactive.find((r) => r.ruleId === "payment_overdue" && r.subjectId === cycle.id);
   console.log("proactive result for our cycle:", overdueHit1);
   console.log(
@@ -87,7 +89,7 @@ async function main() {
   console.log("-> outcome must be 'suppressed_cooldown', proving the cooldown prevents a duplicate alert.");
 
   console.log("\n" + "=".repeat(20), "STEP 4: logged history reflects reality", "=".repeat(20));
-  const history = db.listProactiveNotifications(userId);
+  const history = await db.listProactiveNotifications(userId);
   const forCycle = history.filter((h) => h.subject_id === cycle.id);
   console.log(`total proactive_notifications rows for this cycle: ${forCycle.length} (must be exactly 1 — the suppressed run logs nothing new)`);
   console.log(forCycle.map((h) => ({ rule_id: h.rule_id, outcome: h.outcome, fired_at: h.fired_at })));
@@ -96,7 +98,7 @@ async function main() {
   for (let i = 0; i < 5; i++) {
     await cronOnce();
   }
-  const historyAfter = db.listProactiveNotifications(userId).filter((h) => h.subject_id === cycle.id);
+  const historyAfter = (await db.listProactiveNotifications(userId)).filter((h) => h.subject_id === cycle.id);
   console.log(`rows for this cycle after 5 more runs: ${historyAfter.length} (must still be 1)`);
 
   const ok =

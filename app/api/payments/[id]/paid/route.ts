@@ -8,9 +8,9 @@ import { db } from "@/lib/db";
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const cycle = db.getPaymentCycle(id);
+  const cycle = await db.getPaymentCycle(id);
   if (!cycle) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const updated = db.markPaymentCyclePaid(id);
+  const updated = await db.markPaymentCyclePaid(id);
   return NextResponse.json({ cycle: updated });
 }

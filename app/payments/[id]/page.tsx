@@ -10,11 +10,11 @@ export const dynamic = "force-dynamic";
 
 export default async function PaymentAccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const account = db.getPaymentAccount(id);
+  const account = await db.getPaymentAccount(id);
   if (!account) notFound();
 
   const now = new Date();
-  const cycles = db.listPaymentCycles(id).map((c) => ({ ...c, status: derivePaymentCycleStatus(c.due_date, now, c.status) }));
+  const cycles = (await db.listPaymentCycles(id)).map((c) => ({ ...c, status: derivePaymentCycleStatus(c.due_date, now, c.status) }));
   const nextCycle = cycles.find((c) => c.status !== "paid") ?? null;
   const history = cycles.filter((c) => c.status === "paid" || c !== nextCycle);
 

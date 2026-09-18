@@ -245,7 +245,7 @@ describe("dueScan — call escalation integration (scratch SQLite, mocked provid
 
   async function backdate(db: Awaited<ReturnType<typeof setup>>["db"], reminderId: string) {
     const Database = (await import("better-sqlite3")).default;
-    const occ = db.listOccurrences(reminderId)[0];
+    const occ = (await db.listOccurrences(reminderId))[0];
     const past = new Date(Date.now() - 60_000).toISOString();
     const sqlite = new Database(DB_PATH);
     sqlite.prepare(`update reminder_occurrences set scheduled_for = ? where id = ?`).run(past, occ.id);
@@ -256,9 +256,9 @@ describe("dueScan — call escalation integration (scratch SQLite, mocked provid
   it("2) does not attempt a call when 'call' isn't in the reminder's requested channels", async () => {
     const { db, scanAndProcessDueReminders, twilioProvider } = await setup();
     const placeCallSpy = vi.spyOn(twilioProvider, "placeCall");
-    db.updatePreferences(db.getCurrentUserId(), { phone_number: "+919876543210", escalation_threshold_repeats: 1 });
+    await db.updatePreferences(await db.getCurrentUserId(), { phone_number: "+919876543210", escalation_threshold_repeats: 1 });
 
-    const reminder = db.createReminder(db.getCurrentUserId(), {
+    const reminder = await db.createReminder(await db.getCurrentUserId(), {
       title: "Push-only reminder",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -276,11 +276,11 @@ describe("dueScan — call escalation integration (scratch SQLite, mocked provid
 
   it("6/7/10) a genuinely sent call advances state exactly once; a failed call never advances it", async () => {
     const { db, scanAndProcessDueReminders, twilioProvider } = await setup();
-    db.updatePreferences(db.getCurrentUserId(), { phone_number: "+919876543210", escalation_threshold_repeats: 1 });
+    await db.updatePreferences(await db.getCurrentUserId(), { phone_number: "+919876543210", escalation_threshold_repeats: 1 });
 
     // --- Reminder A: mocked success ---
     twilioProvider.placeCall = vi.fn().mockResolvedValue({ outcome: "sent", detail: "ok", providerRef: "CA_ok" });
-    const sentReminder = db.createReminder(db.getCurrentUserId(), {
+    const sentReminder = await db.createReminder(await db.getCurrentUserId(), {
       title: "Call-escalated reminder (success)",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -292,19 +292,19 @@ describe("dueScan — call escalation integration (scratch SQLite, mocked provid
     await backdate(db, sentReminder.id);
 
     await scanAndProcessDueReminders();
-    const afterFirst = db.listOccurrences(sentReminder.id)[0];
+    const afterFirst = (await db.listOccurrences(sentReminder.id))[0];
     expect(afterFirst.notification_attempt_count).toBe(1);
     expect(twilioProvider.placeCall).toHaveBeenCalledTimes(1);
 
     // 10) idempotency: a second run right after must NOT call again.
     await scanAndProcessDueReminders();
     expect(twilioProvider.placeCall).toHaveBeenCalledTimes(1);
-    const afterSecond = db.listOccurrences(sentReminder.id)[0];
+    const afterSecond = (await db.listOccurrences(sentReminder.id))[0];
     expect(afterSecond.notification_attempt_count).toBe(1);
 
     // --- Reminder B: mocked failure — must NOT advance attempt count ---
     twilioProvider.placeCall = vi.fn().mockResolvedValue({ outcome: "failed", detail: "twilio down" });
-    const failedReminder = db.createReminder(db.getCurrentUserId(), {
+    const failedReminder = await db.createReminder(await db.getCurrentUserId(), {
       title: "Call-escalated reminder (failure)",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -316,17 +316,17 @@ describe("dueScan — call escalation integration (scratch SQLite, mocked provid
     await backdate(db, failedReminder.id);
 
     await scanAndProcessDueReminders();
-    const failedOcc = db.listOccurrences(failedReminder.id)[0];
+    const failedOcc = (await db.listOccurrences(failedReminder.id))[0];
     expect(failedOcc.notification_attempt_count).toBe(0);
     expect(failedOcc.follow_up_state).not.toBe("escalated");
   });
 
   it("8) DONE prevents any further call attempt", async () => {
     const { db, scanAndProcessDueReminders, twilioProvider } = await setup();
-    db.updatePreferences(db.getCurrentUserId(), { phone_number: "+919876543210", escalation_threshold_repeats: 1 });
+    await db.updatePreferences(await db.getCurrentUserId(), { phone_number: "+919876543210", escalation_threshold_repeats: 1 });
     twilioProvider.placeCall = vi.fn().mockResolvedValue({ outcome: "sent", detail: "ok", providerRef: "CA_1" });
 
-    const reminder = db.createReminder(db.getCurrentUserId(), {
+    const reminder = await db.createReminder(await db.getCurrentUserId(), {
       title: "Done before escalation",
       date: new Date().toISOString().slice(0, 10),
       time: "00:00",
@@ -337,7 +337,7 @@ describe("dueScan — call escalation integration (scratch SQLite, mocked provid
     } as never);
     await backdate(db, reminder.id);
 
-    db.completeReminder(reminder.id);
+    await db.completeReminder(reminder.id);
     await scanAndProcessDueReminders();
 
     expect(twilioProvider.placeCall).not.toHaveBeenCalled();

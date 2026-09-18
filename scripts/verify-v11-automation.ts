@@ -15,10 +15,10 @@ async function main() {
   const { db } = await import("../lib/db");
   const { onReminderCompleted } = await import("../lib/automation/engine");
 
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
 
   // 1. Create the automation: "when a reminder is completed, create a follow-up reminder".
-  const automation = db.createAutomation(userId, {
+  const automation = await db.createAutomation(userId, {
     name: "Follow up on complete",
     trigger_type: "reminder_completed",
     trigger_config: {},
@@ -28,18 +28,18 @@ async function main() {
   console.log("1) Created automation:", automation.id, automation.name);
 
   // 2. Complete a real reminder via the real existing completion path.
-  const reminderA = db.createReminder(userId, {
+  const reminderA = await db.createReminder(userId, {
     title: "Pay electricity bill",
     date: "2026-09-18",
     priority: "high",
     types: ["general"],
   });
-  const completedA = db.completeReminder(reminderA.id)!;
+  const completedA = (await db.completeReminder(reminderA.id))!;
   console.log("2) Completed reminder A:", completedA.id, completedA.status);
 
-  const remindersBeforeFirstFire = db.listReminders(userId).length;
+  const remindersBeforeFirstFire = (await db.listReminders(userId)).length;
   const firstFire = await onReminderCompleted(completedA);
-  const remindersAfterFirstFire = db.listReminders(userId);
+  const remindersAfterFirstFire = await db.listReminders(userId);
   console.log("3) First fire result:", JSON.stringify(firstFire));
   console.log(
     `   reminder count ${remindersBeforeFirstFire} -> ${remindersAfterFirstFire.length}`
@@ -52,15 +52,15 @@ async function main() {
   }
 
   // 4. Complete a second, UNRELATED reminder — confirm no cross-trigger duplication logic breaks.
-  const reminderB = db.createReminder(userId, {
+  const reminderB = await db.createReminder(userId, {
     title: "Call the dentist",
     date: "2026-09-18",
     priority: "low",
     types: ["general"],
   });
-  const completedB = db.completeReminder(reminderB.id)!;
+  const completedB = (await db.completeReminder(reminderB.id))!;
   const secondFire = await onReminderCompleted(completedB);
-  const remindersAfterSecond = db.listReminders(userId);
+  const remindersAfterSecond = await db.listReminders(userId);
   console.log("4) Completed unrelated reminder B, fire result:", JSON.stringify(secondFire));
   console.log(`   reminder count now: ${remindersAfterSecond.length}`);
 
@@ -73,9 +73,9 @@ async function main() {
   console.log("   (this automation has no title filter, so it correctly fires for B too — its own follow-up, not a cross-trigger duplicate of A's)");
 
   // 5. Re-run the SAME completion event for reminder A again (simulating a duplicate delivery).
-  const remindersBeforeReplay = db.listReminders(userId).length;
+  const remindersBeforeReplay = (await db.listReminders(userId)).length;
   const replayFire = await onReminderCompleted(completedA);
-  const remindersAfterReplay = db.listReminders(userId).length;
+  const remindersAfterReplay = (await db.listReminders(userId)).length;
   console.log("5) Replayed completion event for reminder A:", JSON.stringify(replayFire));
   console.log(`   reminder count ${remindersBeforeReplay} -> ${remindersAfterReplay}`);
 
@@ -84,7 +84,7 @@ async function main() {
   }
 
   // 6. Anti-chaining: complete the automation-created follow-up reminder itself.
-  const chainResult = await onReminderCompleted(db.completeReminder(followUp!.id)!);
+  const chainResult = await onReminderCompleted((await db.completeReminder(followUp!.id))!);
   console.log("6) Completed the automation-created follow-up reminder:", JSON.stringify(chainResult));
   if (chainResult.length !== 0) {
     throw new Error("FAIL: automation chaining occurred — completing an automation's own output re-fired an automation.");

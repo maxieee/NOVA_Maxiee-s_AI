@@ -12,7 +12,7 @@ import { googleCalendarConnector } from "@/lib/integrations/googleCalendar";
  * documented limitation, not something papered over.
  */
 export async function GET(req: NextRequest) {
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const error = url.searchParams.get("error");
 
   if (error) {
-    db.upsertIntegrationAccount(userId, "google_calendar", {
+    await db.upsertIntegrationAccount(userId, "google_calendar", {
       status: "error",
       last_error: `Google returned an error: ${error}`,
     });
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (!code || !state || !cookieState || state !== cookieState) {
-    db.upsertIntegrationAccount(userId, "google_calendar", {
+    await db.upsertIntegrationAccount(userId, "google_calendar", {
       status: "error",
       last_error: "OAuth state mismatch or missing authorization code.",
     });
@@ -38,14 +38,14 @@ export async function GET(req: NextRequest) {
   const result = await googleCalendarConnector.exchangeCode!(code);
 
   if (result.outcome !== "connected") {
-    db.upsertIntegrationAccount(userId, "google_calendar", {
+    await db.upsertIntegrationAccount(userId, "google_calendar", {
       status: "error",
       last_error: result.detail ?? "Token exchange did not succeed.",
     });
     return NextResponse.redirect(new URL("/settings?integration=google_calendar&result=error", req.url));
   }
 
-  db.upsertIntegrationAccount(userId, "google_calendar", {
+  await db.upsertIntegrationAccount(userId, "google_calendar", {
     status: "connected",
     access_token: result.accessToken ?? null,
     refresh_token: result.refreshToken ?? null,

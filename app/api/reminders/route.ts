@@ -3,13 +3,13 @@ import { db } from "@/lib/db";
 import type { ReminderInput } from "@/types/reminder";
 
 export async function GET() {
-  const userId = db.getCurrentUserId();
-  const reminders = db.listReminders(userId);
+  const userId = await db.getCurrentUserId();
+  const reminders = await db.listReminders(userId);
   return NextResponse.json({ reminders });
 }
 
 export async function POST(req: NextRequest) {
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
   const input = (await req.json()) as ReminderInput;
 
   if (!input.title || !input.date || !input.types?.length) {
@@ -19,6 +19,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const reminder = db.createReminder(userId, input);
+  const reminder = await db.createReminder(userId, input);
   return NextResponse.json({ reminder }, { status: 201 });
 }

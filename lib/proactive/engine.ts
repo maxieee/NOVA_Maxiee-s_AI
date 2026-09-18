@@ -32,21 +32,21 @@ export interface ProactiveRunResult {
  *  - never sends more than one alert per rule+subject per evaluation call.
  */
 export async function runProactiveIntelligence(now: Date = new Date()): Promise<ProactiveRunResult[]> {
-  const userId = db.getCurrentUserId();
-  const preferences = db.getPreferences(userId);
+  const userId = await db.getCurrentUserId();
+  const preferences = await db.getPreferences(userId);
   const results: ProactiveRunResult[] = [];
 
   if (!preferences.proactive_intelligence_enabled) {
     return results;
   }
 
-  const reminders: Reminder[] = db.listReminders(userId);
-  const occurrences = db.listUpcomingOccurrences(userId);
+  const reminders: Reminder[] = await db.listReminders(userId);
+  const occurrences = await db.listUpcomingOccurrences(userId);
 
-  const accounts: PaymentAccount[] = db.listPaymentAccounts(userId).filter((a) => a.active);
+  const accounts: PaymentAccount[] = (await db.listPaymentAccounts(userId)).filter((a) => a.active);
   const paymentCycles: Array<{ account: PaymentAccount; cycle: PaymentCycle }> = [];
   for (const account of accounts) {
-    for (const cycle of db.listPaymentCycles(account.id)) {
+    for (const cycle of await db.listPaymentCycles(account.id)) {
       if (cycle.status === "paid") continue;
       paymentCycles.push({ account, cycle });
     }
@@ -67,7 +67,7 @@ export async function runProactiveIntelligence(now: Date = new Date()): Promise<
     }
 
     for (const event of events) {
-      const last = db.getLastProactiveNotification(userId, event.ruleId, event.subjectType, event.subjectId);
+      const last = await db.getLastProactiveNotification(userId, event.ruleId, event.subjectType, event.subjectId);
       const cooldownActive =
         !!last && now.getTime() - new Date(last.fired_at).getTime() < rule.cooldownMinutes * 60_000;
 
@@ -86,7 +86,7 @@ export async function runProactiveIntelligence(now: Date = new Date()): Promise<
         // Logged (not silently dropped) so it counts toward the cooldown —
         // otherwise the same situation would fire the instant quiet hours
         // end, then again on the very next tick.
-        db.logProactiveNotification({
+        await db.logProactiveNotification({
           userId,
           ruleId: event.ruleId,
           subjectType: event.subjectType,
@@ -109,7 +109,7 @@ export async function runProactiveIntelligence(now: Date = new Date()): Promise<
       // Use the SPECIFIC reminder's own configured channels when this event
       // is about one (never force push on everything); otherwise fall back
       // to the user's global preferred channels.
-      const linkedReminder = event.reminderId ? db.getReminder(event.reminderId) : null;
+      const linkedReminder = event.reminderId ? await db.getReminder(event.reminderId) : null;
       const requestedChannels: NotificationChannel[] = linkedReminder?.channels.length
         ? linkedReminder.channels
         : preferences.preferred_channels.length
@@ -119,7 +119,7 @@ export async function runProactiveIntelligence(now: Date = new Date()): Promise<
 
       const outcome = await dispatch(provider, channel, userId, preferences.phone_number, event.message);
 
-      db.logProactiveNotification({
+      await db.logProactiveNotification({
         userId,
         ruleId: event.ruleId,
         subjectType: event.subjectType,
@@ -134,7 +134,7 @@ export async function runProactiveIntelligence(now: Date = new Date()): Promise<
       // event is tied to a specific reminder — reuses addHistory, doesn't
       // invent a second history mechanism.
       if (event.reminderId) {
-        db.addHistory(
+        await db.addHistory(
           event.reminderId,
           "notified",
           `proactive (${event.ruleId}): ${channel} — ${outcome.outcome}`

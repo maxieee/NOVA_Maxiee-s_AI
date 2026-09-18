@@ -4,9 +4,9 @@ import { CreateReminderForm } from "@/components/reminders/CreateReminderForm";
 
 export const dynamic = "force-dynamic";
 
-export default function NewReminderPage() {
-  const userId = db.getCurrentUserId();
-  const prefs = db.getPreferences(userId);
+export default async function NewReminderPage() {
+  const userId = await db.getCurrentUserId();
+  const prefs = await db.getPreferences(userId);
 
   return (
     <div>

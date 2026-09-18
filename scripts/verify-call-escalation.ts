@@ -36,7 +36,7 @@ function pick(o: unknown) {
 async function backdate(reminderId: string) {
   const { db } = await import("../lib/db");
   const Database = (await import("better-sqlite3")).default;
-  const occ = db.listOccurrences(reminderId)[0];
+  const occ = (await db.listOccurrences(reminderId))[0];
   const past = new Date(Date.now() - 60_000).toISOString();
   const sqlite = new Database(DB_PATH);
   sqlite.prepare(`update reminder_occurrences set scheduled_for = ? where id = ?`).run(past, occ.id);
@@ -49,8 +49,8 @@ async function main() {
   const { validatePhoneNumber } = await import("../lib/notifications/validatePhoneNumber");
 
   console.log("=".repeat(20), "PART A: honest not_configured path (no Twilio env vars set here)", "=".repeat(20));
-  db.updatePreferences(db.getCurrentUserId(), { phone_number: "+919876543210" });
-  const honest = db.createReminder(db.getCurrentUserId(), {
+  await db.updatePreferences(await db.getCurrentUserId(), { phone_number: "+919876543210" });
+  const honest = await db.createReminder(await db.getCurrentUserId(), {
     title: "Call-requesting reminder, no Twilio creds",
     date: new Date().toISOString().slice(0, 10),
     time: "00:00",
@@ -62,7 +62,7 @@ async function main() {
   await backdate(honest.id);
   let r = await scanAndProcessDueReminders();
   console.log("dueScan result:", r.find((x) => x.reminderId === honest.id));
-  console.log("occurrence:", pick(db.listOccurrences(honest.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(honest.id))[0]));
   console.log(
     "-> As expected in a sandbox with no real TWILIO_* env vars, the channel is unavailable and NOVA " +
       "honestly stops rather than fabricating a call.\n"
@@ -78,7 +78,7 @@ async function main() {
   console.log("Pre-flight validator check: 'not-a-number' valid?", validatePhoneNumber("not-a-number"));
 
   twilioProvider.placeCall = async () => ({ outcome: "sent" as const, detail: "(simulated)", providerRef: "CA_simulated" });
-  const success = db.createReminder(db.getCurrentUserId(), {
+  const success = await db.createReminder(await db.getCurrentUserId(), {
     title: "Call-escalated reminder (simulated success)",
     date: new Date().toISOString().slice(0, 10),
     time: "00:00",
@@ -90,16 +90,16 @@ async function main() {
   await backdate(success.id);
   r = await scanAndProcessDueReminders();
   console.log("run 1 (simulated success):", r.find((x) => x.reminderId === success.id));
-  console.log("occurrence:", pick(db.listOccurrences(success.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(success.id))[0]));
   r = await scanAndProcessDueReminders();
   console.log(
     "run 2 immediately after (idempotent no-op, attempt count unchanged):",
     r.find((x) => x.reminderId === success.id)
   );
-  console.log("occurrence:", pick(db.listOccurrences(success.id)[0]));
+  console.log("occurrence:", pick((await db.listOccurrences(success.id))[0]));
 
   twilioProvider.placeCall = async () => ({ outcome: "failed" as const, detail: "(simulated Twilio error)" });
-  const failure = db.createReminder(db.getCurrentUserId(), {
+  const failure = await db.createReminder(await db.getCurrentUserId(), {
     title: "Call-escalated reminder (simulated failure)",
     date: new Date().toISOString().slice(0, 10),
     time: "00:00",
@@ -111,9 +111,9 @@ async function main() {
   await backdate(failure.id);
   r = await scanAndProcessDueReminders();
   console.log("\nrun (simulated Twilio failure):", r.find((x) => x.reminderId === failure.id));
-  console.log("occurrence (attempt count must stay 0):", pick(db.listOccurrences(failure.id)[0]));
+  console.log("occurrence (attempt count must stay 0):", pick((await db.listOccurrences(failure.id))[0]));
 
-  const notifications = db.listNotifications(failure.id);
+  const notifications = await db.listNotifications(failure.id);
   console.log("\nlogged notifications for the failed reminder:", notifications);
 }
 

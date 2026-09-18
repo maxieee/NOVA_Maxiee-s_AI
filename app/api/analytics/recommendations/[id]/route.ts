@@ -6,11 +6,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = (await req.json()) as { action?: "apply" | "dismiss" };
 
   if (body.action === "apply") {
-    const record = applyRecommendation(id);
+    const record = await applyRecommendation(id);
     return NextResponse.json({ recommendation: record });
   }
   if (body.action === "dismiss") {
-    const record = dismissRecommendation(id);
+    const record = await dismissRecommendation(id);
     return NextResponse.json({ recommendation: record });
   }
   return NextResponse.json({ error: "action must be 'apply' or 'dismiss'" }, { status: 400 });

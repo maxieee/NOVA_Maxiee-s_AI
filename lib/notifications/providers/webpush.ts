@@ -37,7 +37,7 @@ export async function sendPushToUser(
   payloadOrMessage: PushNotificationPayload | string
 ): Promise<SubscriptionOutcome[]> {
   const details = vapidDetails();
-  const subscriptions = db.listActivePushSubscriptions(userId);
+  const subscriptions = await db.listActivePushSubscriptions(userId);
 
   if (!details) {
     return subscriptions.map((s) => ({
@@ -76,13 +76,13 @@ export async function sendPushToUser(
     } catch (err: unknown) {
       const statusCode = (err as { statusCode?: number })?.statusCode;
       if (statusCode === 404 || statusCode === 410) {
-        db.deactivatePushSubscription(sub.endpoint);
+        await db.deactivatePushSubscription(sub.endpoint);
         results.push({
           endpoint: sub.endpoint,
           result: { outcome: "failed", detail: "Subscription expired/invalid; deactivated." },
         });
       } else {
-        db.recordPushFailure(sub.endpoint);
+        await db.recordPushFailure(sub.endpoint);
         const message = err instanceof Error ? err.message : String(err);
         results.push({ endpoint: sub.endpoint, result: { outcome: "failed", detail: `Push send failed: ${message}` } });
       }

@@ -29,8 +29,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const userId = db.getCurrentUserId();
-  const preferences = db.getPreferences(userId);
+  const userId = await db.getCurrentUserId();
+  const preferences = await db.getPreferences(userId);
   const phoneNumber = body.phoneNumber ?? preferences.phone_number;
 
   const check = validatePhoneNumber(phoneNumber);

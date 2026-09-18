@@ -37,14 +37,14 @@ async function main() {
   webpushProvider.sendPush = async () => ({ outcome: "sent" as const, detail: "(simulated)" });
   twilioProvider.placeCall = async () => ({ outcome: "sent" as const, detail: "(simulated)" });
 
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
 
   // Set the user override to 1: NOVA should escalate to "call" on the very
   // first follow-up (repeat #1), instead of waiting for the global default
   // of 3.
-  db.updatePreferences(userId, { escalation_threshold_repeats: 1 });
+  await db.updatePreferences(userId, { escalation_threshold_repeats: 1 });
 
-  const reminder = db.createReminder(userId, {
+  const reminder = await db.createReminder(userId, {
     title: "Pay credit card",
     date: new Date().toISOString().slice(0, 10),
     time: "00:00",
@@ -56,12 +56,12 @@ async function main() {
 
   console.log("Preference set: escalation_threshold_repeats = 1");
   console.log("Run 1 (initial send):", await scanAndProcessDueReminders());
-  console.log("  occurrence:", pick(db.listOccurrences(reminder.id)[0]));
+  console.log("  occurrence:", pick((await db.listOccurrences(reminder.id))[0]));
 
   await new Promise((r) => setTimeout(r, 1500));
 
   console.log("Run 2 (after interval — should escalate to call on repeat #1):", await scanAndProcessDueReminders());
-  const occ = db.listOccurrences(reminder.id)[0];
+  const occ = (await db.listOccurrences(reminder.id))[0];
   console.log("  occurrence:", pick(occ));
 
   const escalatedEarly = occ.follow_up_state === "escalated" && occ.escalation_level >= 1;

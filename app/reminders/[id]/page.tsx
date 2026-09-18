@@ -14,12 +14,12 @@ export default async function ReminderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const reminder = db.getReminder(id);
+  const reminder = await db.getReminder(id);
   if (!reminder) notFound();
 
-  const history = db.listHistory(id);
-  const notifications = db.listNotifications(id);
-  const occurrences = db.listOccurrences(id);
+  const history = await db.listHistory(id);
+  const notifications = await db.listNotifications(id);
+  const occurrences = await db.listOccurrences(id);
 
   // Real, chronological activity timeline — derived only from actual
   // reminder_history/notifications rows, never fabricated.

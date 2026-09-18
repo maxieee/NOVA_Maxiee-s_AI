@@ -18,7 +18,7 @@ import type {
  * V11 Automation Engine — impure orchestrator, same architectural role as
  * lib/proactive/engine.ts: the only place automation logic touches the
  * DB/providers. Actions call ONLY existing reminder/notification creation
- * paths (db.createReminder / the existing notification provider
+ * paths (await db.createReminder / the existing notification provider
  * abstraction) — there is no parallel action executor.
  *
  * Anti-chaining (hard rule for this pass, not a hop-count heuristic): any
@@ -63,7 +63,7 @@ async function runAction(automation: AutomationRecord, userId: string): Promise<
       const cfg = JSON.parse(automation.action_config) as CreateReminderActionConfig;
       const date = new Date();
       date.setDate(date.getDate() + (cfg.daysFromNow ?? 0));
-      const reminder = db.createReminder(userId, {
+      const reminder = await db.createReminder(userId, {
         title: cfg.title,
         date: toISODate(date),
         time: cfg.time,
@@ -77,7 +77,7 @@ async function runAction(automation: AutomationRecord, userId: string): Promise<
 
     if (automation.action_type === "send_notification") {
       const cfg = JSON.parse(automation.action_config) as SendNotificationActionConfig;
-      const preferences = db.getPreferences(userId);
+      const preferences = await db.getPreferences(userId);
       const provider = getNotificationProvider();
       const channel: NotificationChannel = cfg.channel ?? preferences.preferred_channels[0] ?? "push";
       const outcome = await dispatch(provider, channel, userId, preferences.phone_number, cfg.message);
@@ -119,7 +119,7 @@ async function dispatch(
 }
 
 /**
- * Fired synchronously right after a real db.completeReminder() call
+ * Fired synchronously right after a real await db.completeReminder() call
  * succeeds — see app/api/reminders/[id]/done/route.ts and
  * lib/assistant/executeIntent.ts's COMPLETE_REMINDER case, the two exact
  * call sites where "a reminder was completed" already happens in the
@@ -133,13 +133,13 @@ export async function onReminderCompleted(
 
   // Anti-chaining: an automation-created reminder being completed must
   // never itself trigger a reminder_completed automation.
-  if (db.wasCreatedByAutomation(completedReminder.id)) {
+  if (await db.wasCreatedByAutomation(completedReminder.id)) {
     return results;
   }
 
-  const automations = db
-    .listAutomations(completedReminder.user_id)
-    .filter((a) => a.enabled && a.trigger_type === "reminder_completed");
+  const automations = (await db.listAutomations(completedReminder.user_id)).filter(
+    (a) => a.enabled && a.trigger_type === "reminder_completed"
+  );
 
   for (const automation of automations) {
     const triggerContext = completedReminder.id;
@@ -147,12 +147,12 @@ export async function onReminderCompleted(
     // Idempotency: skip if this exact automation already ran for this
     // exact reminder (protects against the same completion event being
     // replayed, e.g. a duplicate request).
-    const existingRuns = db.listAutomationRuns(automation.id, 200);
+    const existingRuns = await db.listAutomationRuns(automation.id, 200);
     const alreadyRan = existingRuns.some(
       (r) => r.trigger_context === triggerContext && r.outcome === "success"
     );
     if (alreadyRan) {
-      db.logAutomationRun({
+      await db.logAutomationRun({
         automationId: automation.id,
         triggerContext,
         outcome: "skipped_cooldown",
@@ -164,7 +164,7 @@ export async function onReminderCompleted(
 
     const cfg = JSON.parse(automation.trigger_config || "{}") as ReminderCompletedTriggerConfig;
     if (cfg.titleContains && !completedReminder.title.toLowerCase().includes(cfg.titleContains.toLowerCase())) {
-      db.logAutomationRun({
+      await db.logAutomationRun({
         automationId: automation.id,
         triggerContext,
         outcome: "skipped_condition",
@@ -175,14 +175,14 @@ export async function onReminderCompleted(
     }
 
     const result = await runAction(automation, completedReminder.user_id);
-    db.logAutomationRun({
+    await db.logAutomationRun({
       automationId: automation.id,
       triggerContext,
       outcome: result.outcome,
       detail: result.detail,
     });
     if (result.outcome === "success") {
-      db.touchAutomationLastRun(automation.id, now.toISOString());
+      await db.touchAutomationLastRun(automation.id, now.toISOString());
     }
     results.push(result);
   }
@@ -199,11 +199,11 @@ export async function onReminderCompleted(
  * pattern as V8's proactive_notifications table).
  */
 export async function runPeriodicAutomations(now: Date = new Date()): Promise<AutomationFireResult[]> {
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
   const results: AutomationFireResult[] = [];
-  const automations = db
-    .listAutomations(userId)
-    .filter((a) => a.enabled && (a.trigger_type === "cron_daily" || a.trigger_type === "cron_weekly"));
+  const automations = (await db.listAutomations(userId)).filter(
+    (a) => a.enabled && (a.trigger_type === "cron_daily" || a.trigger_type === "cron_weekly")
+  );
 
   for (const automation of automations) {
     const key = periodKey(automation.trigger_type as "cron_daily" | "cron_weekly", now);
@@ -211,7 +211,7 @@ export async function runPeriodicAutomations(now: Date = new Date()): Promise<Au
       !!automation.last_run_at && periodKeyFromISO(automation.trigger_type as "cron_daily" | "cron_weekly", automation.last_run_at) === key;
 
     if (alreadyRanThisPeriod) {
-      db.logAutomationRun({
+      await db.logAutomationRun({
         automationId: automation.id,
         triggerContext: key,
         outcome: "skipped_cooldown",
@@ -222,14 +222,14 @@ export async function runPeriodicAutomations(now: Date = new Date()): Promise<Au
     }
 
     const result = await runAction(automation, userId);
-    db.logAutomationRun({
+    await db.logAutomationRun({
       automationId: automation.id,
       triggerContext: key,
       outcome: result.outcome,
       detail: result.detail,
     });
     if (result.outcome === "success") {
-      db.touchAutomationLastRun(automation.id, now.toISOString());
+      await db.touchAutomationLastRun(automation.id, now.toISOString());
     }
     results.push(result);
   }
@@ -248,17 +248,17 @@ function periodKeyFromISO(triggerType: "cron_daily" | "cron_weekly", iso: string
  * automation_runs.trigger_context.
  */
 export async function runPaymentOverdueAutomations(now: Date = new Date()): Promise<AutomationFireResult[]> {
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
   const results: AutomationFireResult[] = [];
-  const automations = db
-    .listAutomations(userId)
-    .filter((a) => a.enabled && a.trigger_type === "payment_overdue");
+  const automations = (await db.listAutomations(userId)).filter(
+    (a) => a.enabled && a.trigger_type === "payment_overdue"
+  );
   if (automations.length === 0) return results;
 
-  const accounts: PaymentAccount[] = db.listPaymentAccounts(userId).filter((a) => a.active);
+  const accounts: PaymentAccount[] = (await db.listPaymentAccounts(userId)).filter((a) => a.active);
   const overdueCycles: PaymentCycle[] = [];
   for (const account of accounts) {
-    for (const cycle of db.listPaymentCycles(account.id)) {
+    for (const cycle of await db.listPaymentCycles(account.id)) {
       if (cycle.status === "overdue") overdueCycles.push(cycle);
     }
   }
@@ -266,7 +266,7 @@ export async function runPaymentOverdueAutomations(now: Date = new Date()): Prom
   for (const automation of automations) {
     for (const cycle of overdueCycles) {
       const triggerContext = cycle.id;
-      const existingRuns = db.listAutomationRuns(automation.id, 500);
+      const existingRuns = await db.listAutomationRuns(automation.id, 500);
       const alreadyRan = existingRuns.some(
         (r) => r.trigger_context === triggerContext && r.outcome === "success"
       );
@@ -275,14 +275,14 @@ export async function runPaymentOverdueAutomations(now: Date = new Date()): Prom
         continue;
       }
       const result = await runAction(automation, userId);
-      db.logAutomationRun({
+      await db.logAutomationRun({
         automationId: automation.id,
         triggerContext,
         outcome: result.outcome,
         detail: result.detail,
       });
       if (result.outcome === "success") {
-        db.touchAutomationLastRun(automation.id, now.toISOString());
+        await db.touchAutomationLastRun(automation.id, now.toISOString());
       }
       results.push(result);
     }

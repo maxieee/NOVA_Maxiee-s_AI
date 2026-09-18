@@ -4,9 +4,9 @@ import type { PaymentAccountUpdate } from "@/types/reminder";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const account = db.getPaymentAccount(id);
+  const account = await db.getPaymentAccount(id);
   if (!account) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const cycles = db.listPaymentCycles(id);
+  const cycles = await db.listPaymentCycles(id);
   return NextResponse.json({ account, cycles });
 }
 
@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const existing = db.getPaymentAccount(id);
+  const existing = await db.getPaymentAccount(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -47,7 +47,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (key in body) (update as Record<string, unknown>)[key] = body[key];
   }
 
-  const account = db.updatePaymentAccount(id, update);
+  const account = await db.updatePaymentAccount(id, update);
   return NextResponse.json({ account });
 }
 
@@ -57,8 +57,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
  */
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const existing = db.getPaymentAccount(id);
+  const existing = await db.getPaymentAccount(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const account = db.setPaymentAccountActive(id, false);
+  const account = await db.setPaymentAccountActive(id, false);
   return NextResponse.json({ account });
 }

@@ -6,10 +6,10 @@ import { onReminderCompleted } from "@/lib/automation/engine";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const existing = db.getReminder(id);
+  const existing = await db.getReminder(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const completed = db.completeReminder(id);
+  const completed = await db.completeReminder(id);
 
   // V11 Automation Engine: fire any enabled reminder_completed automations
   // at the exact point this event already happens — never a poller.
@@ -23,13 +23,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const from = new Date(`${existing.date}T${existing.time ?? "09:00"}:00`);
     const next = computeNextOccurrence(existing.recurrence, from);
     if (next) {
-      db.rescheduleReminder(id, toISODate(next), existing.time);
-      db.updateReminderStatus(id, "scheduled");
-      db.addOccurrence(id, next.toISOString());
-      db.addHistory(id, "updated", `Recurred to next occurrence on ${toISODate(next)}`);
+      await db.rescheduleReminder(id, toISODate(next), existing.time);
+      await db.updateReminderStatus(id, "scheduled");
+      await db.addOccurrence(id, next.toISOString());
+      await db.addHistory(id, "updated", `Recurred to next occurrence on ${toISODate(next)}`);
     }
   }
 
-  const reminder = db.getReminder(id);
+  const reminder = await db.getReminder(id);
   return NextResponse.json({ reminder: reminder ?? completed });
 }

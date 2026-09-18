@@ -15,12 +15,15 @@ const ACTION_ICON: Record<string, string> = {
   escalated: "star",
 };
 
-export default function HistoryPage() {
-  const userId = db.getCurrentUserId();
-  const reminders = db.listReminders(userId);
+export default async function HistoryPage() {
+  const userId = await db.getCurrentUserId();
+  const reminders = await db.listReminders(userId);
 
-  const entries = reminders
-    .flatMap((r) => db.listHistory(r.id).map((h) => ({ ...h, reminder: r })))
+  const historyByReminder = await Promise.all(
+    reminders.map(async (r) => (await db.listHistory(r.id)).map((h) => ({ ...h, reminder: r })))
+  );
+  const entries = historyByReminder
+    .flat()
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   return (

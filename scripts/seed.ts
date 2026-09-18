@@ -8,8 +8,8 @@
  */
 import { db } from "../lib/db";
 
-const userId = db.getCurrentUserId();
-const reminders = db.listReminders(userId);
+const userId = await db.getCurrentUserId();
+const reminders = await db.listReminders(userId);
 
 console.log(`NOVA local database ready at database/nova.sqlite`);
 console.log(`Seeded ${reminders.length} demo reminders for user ${userId}.`);

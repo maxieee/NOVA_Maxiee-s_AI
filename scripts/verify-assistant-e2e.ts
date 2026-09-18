@@ -46,7 +46,7 @@ async function main() {
   const { db } = await import("../lib/db");
   const { ensureUpcomingCycle } = await import("../lib/scheduling/paymentCycles");
 
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
   const now = new Date("2026-09-18T12:00:00");
 
   console.log("\n=== CREATE_REMINDER ===");
@@ -56,9 +56,9 @@ async function main() {
     now
   );
   console.log(`  NOVA: ${createReply.reply}`);
-  const createdReminder = db
-    .listReminders(userId)
-    .find((r) => r.title.toLowerCase().includes("call the accountant"));
+  const createdReminder = (await db.listReminders(userId)).find((r) =>
+    r.title.toLowerCase().includes("call the accountant")
+  );
   check("reminder was actually persisted", Boolean(createdReminder));
   check("reminder date is correct", createdReminder?.date === "2026-09-19", createdReminder?.date);
   check("reminder time is correct", createdReminder?.time === "10:00", createdReminder?.time ?? "null");
@@ -67,14 +67,14 @@ async function main() {
   console.log("\n=== SNOOZE_REMINDER (via 'it') ===");
   const snoozeReply = await handleAssistantMessage("snooze it for 15 minutes", "e2e-session", now);
   console.log(`  NOVA: ${snoozeReply.reply}`);
-  const afterSnooze = db.getReminder(createdReminder!.id);
+  const afterSnooze = await db.getReminder(createdReminder!.id);
   check("reminder status is really 'snoozed' in the DB", afterSnooze?.status === "snoozed", afterSnooze?.status);
   check("response confirms the snooze", /snoozed/i.test(snoozeReply.reply));
 
   console.log("\n=== COMPLETE_REMINDER ===");
   const completeReply = await handleAssistantMessage("mark the accountant call as done", "e2e-session", now);
   console.log(`  NOVA: ${completeReply.reply}`);
-  const afterComplete = db.getReminder(createdReminder!.id);
+  const afterComplete = await db.getReminder(createdReminder!.id);
   check("reminder status is really 'completed' in the DB", afterComplete?.status === "completed", afterComplete?.status);
   check("response confirms completion", /done/i.test(completeReply.reply));
 
@@ -84,7 +84,7 @@ async function main() {
   check("never claims success for a failed/impossible action", !/^done/i.test(failReply.reply));
 
   console.log("\n=== QUERY_TODAY (delegates to buildTodayViewModel) ===");
-  const overdueReminder = db.createReminder(userId, {
+  const overdueReminder = await db.createReminder(userId, {
     title: "Overdue e2e task",
     date: "2026-09-10",
     time: "09:00",
@@ -95,10 +95,11 @@ async function main() {
   console.log(`  NOVA: ${todayReply.reply}`);
   check("today summary mentions 'needing attention today'", /needing attention today/i.test(todayReply.reply));
   check("overdue count reflects the real overdue reminder", /overdue/i.test(todayReply.reply));
-  check("overdue reminder is still really overdue in the DB", db.getReminder(overdueReminder.id)?.status !== "completed");
+  const overdueReminderNow = await db.getReminder(overdueReminder.id);
+  check("overdue reminder is still really overdue in the DB", overdueReminderNow?.status !== "completed");
 
   console.log("\n=== MARK_PAYMENT_PAID ===");
-  const account = db.createPaymentAccount(userId, {
+  const account = await db.createPaymentAccount(userId, {
     name: "E2E Test Card",
     payment_type: "CREDIT_CARD",
     issuer: "Test Bank",
@@ -114,11 +115,11 @@ async function main() {
     reminder_enabled: true,
     escalation_enabled: true,
   });
-  const cycle = ensureUpcomingCycle(account, now);
+  const cycle = await ensureUpcomingCycle(account, now);
   check("payment cycle starts unpaid", cycle.status !== "paid", cycle.status);
   const paidReply = await handleAssistantMessage("mark the E2E Test Card as paid", "e2e-session", now);
   console.log(`  NOVA: ${paidReply.reply}`);
-  const verifiedCycle = db.getPaymentCycle(cycle.id);
+  const verifiedCycle = await db.getPaymentCycle(cycle.id);
   check("payment cycle is really 'paid' in the DB", verifiedCycle?.status === "paid", verifiedCycle?.status);
   check("response confirms the payment", /paid/i.test(paidReply.reply));
 

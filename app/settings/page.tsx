@@ -10,11 +10,11 @@ import { isTwilioConfigured } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
 
-export default function SettingsPage() {
-  const userId = db.getCurrentUserId();
-  const prefs = db.getPreferences(userId);
-  const personalContext = db.listPersonalContext(userId);
-  const proactiveHistory = db.listProactiveNotifications(userId, 10);
+export default async function SettingsPage() {
+  const userId = await db.getCurrentUserId();
+  const prefs = await db.getPreferences(userId);
+  const personalContext = await db.listPersonalContext(userId);
+  const proactiveHistory = await db.listProactiveNotifications(userId, 10);
 
   return (
     <div>

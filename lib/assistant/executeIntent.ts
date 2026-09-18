@@ -5,7 +5,7 @@
 // lib/scheduling/dueScan.ts and todayIntelligence.ts already do) — never
 // raw SQL, never a duplicated copy of due-date/urgency/escalation math.
 // After a mutation, the real persisted state is re-read and verified
-// before a response is generated (see the `db.get*` re-reads below).
+// before a response is generated (see the `await db.get*` re-reads below).
 
 import { db } from "@/lib/db";
 import { scanAndProcessDueReminders } from "@/lib/scheduling/dueScan";
@@ -53,7 +53,7 @@ function latestUnpaidCycle(cycles: PaymentCycle[]): PaymentCycle | null {
  * allowlisted intents can ever reach a DataLayer call from here.
  */
 export async function executeIntent(intent: AssistantIntent, context: SessionContext): Promise<ExecutionOutcome> {
-  const userId = db.getCurrentUserId();
+  const userId = await db.getCurrentUserId();
 
   switch (intent.type) {
     case "CREATE_REMINDER": {
@@ -64,10 +64,10 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
         priority: "medium",
         types: intent.reminderTypes,
       };
-      const created = db.createReminder(userId, input);
+      const created = await db.createReminder(userId, input);
       // Verify: re-read the persisted record rather than trusting the
       // return value alone.
-      const verified = db.getReminder(created.id);
+      const verified = await db.getReminder(created.id);
       if (!verified) return fail(respond.replyForFailure("create that reminder", "it didn't save"));
       return ok(respond.replyForCreated(verified, false), {
         resultSummary: `created reminder ${verified.id}`,
@@ -88,8 +88,8 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
           by_weekday: intent.recurrence.by_weekday ?? null,
         },
       };
-      const created = db.createReminder(userId, input);
-      const verified = db.getReminder(created.id);
+      const created = await db.createReminder(userId, input);
+      const verified = await db.getReminder(created.id);
       if (!verified) return fail(respond.replyForFailure("set up that recurring reminder", "it didn't save"));
       return ok(respond.replyForCreated(verified, true), {
         resultSummary: `created recurring reminder ${verified.id}`,
@@ -98,7 +98,7 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
     }
 
     case "SNOOZE_REMINDER": {
-      const resolved = resolveReminder(intent.reference, db.listReminders(userId), context);
+      const resolved = resolveReminder(intent.reference, await db.listReminders(userId), context);
       if (resolved.kind === "AMBIGUOUS") {
         return needsClarification(
           `I found a few reminders matching that: ${resolved.matches.map((r) => `"${r.title}"`).join(", ")}. Which one?`
@@ -107,9 +107,9 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
       if (resolved.kind === "NOT_FOUND") {
         return needsClarification("I couldn't find a reminder matching that — could you be more specific?");
       }
-      const updated = db.snoozeReminder(resolved.item.id, intent.minutes);
+      const updated = await db.snoozeReminder(resolved.item.id, intent.minutes);
       if (!updated) return fail(respond.replyForFailure("snooze that reminder", "the reminder wasn't found"));
-      const verified = db.getReminder(resolved.item.id);
+      const verified = await db.getReminder(resolved.item.id);
       if (!verified || verified.status !== "snoozed") {
         return fail(respond.replyForFailure("snooze that reminder", "the change didn't persist"));
       }
@@ -120,7 +120,7 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
     }
 
     case "COMPLETE_REMINDER": {
-      const resolved = resolveReminder(intent.reference, db.listReminders(userId), context);
+      const resolved = resolveReminder(intent.reference, await db.listReminders(userId), context);
       if (resolved.kind === "AMBIGUOUS") {
         return needsClarification(
           `I found a few reminders matching that: ${resolved.matches.map((r) => `"${r.title}"`).join(", ")}. Which one?`
@@ -129,8 +129,8 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
       if (resolved.kind === "NOT_FOUND") {
         return needsClarification("I couldn't find a reminder matching that — could you be more specific?");
       }
-      const completed = db.completeReminder(resolved.item.id);
-      const verified = db.getReminder(resolved.item.id);
+      const completed = await db.completeReminder(resolved.item.id);
+      const verified = await db.getReminder(resolved.item.id);
       if (!completed || !verified || verified.status !== "completed") {
         return fail(respond.replyForFailure("mark that as done", "the change didn't persist"));
       }
@@ -143,7 +143,7 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
     }
 
     case "UPDATE_REMINDER": {
-      const resolved = resolveReminder(intent.reference, db.listReminders(userId), context);
+      const resolved = resolveReminder(intent.reference, await db.listReminders(userId), context);
       if (resolved.kind === "AMBIGUOUS") {
         return needsClarification(
           `I found a few reminders matching that: ${resolved.matches.map((r) => `"${r.title}"`).join(", ")}. Which one?`
@@ -152,8 +152,8 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
       if (resolved.kind === "NOT_FOUND") {
         return needsClarification("I couldn't find a reminder matching that — could you be more specific?");
       }
-      db.rescheduleReminder(resolved.item.id, intent.newWhen.date, intent.newWhen.time ?? null);
-      const verified = db.getReminder(resolved.item.id);
+      await db.rescheduleReminder(resolved.item.id, intent.newWhen.date, intent.newWhen.time ?? null);
+      const verified = await db.getReminder(resolved.item.id);
       if (!verified || verified.date !== intent.newWhen.date) {
         return fail(respond.replyForFailure("move that reminder", "the change didn't persist"));
       }
@@ -164,7 +164,7 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
     }
 
     case "REMIND_AGAIN": {
-      const resolved = resolveReminder(intent.reference, db.listReminders(userId), context);
+      const resolved = resolveReminder(intent.reference, await db.listReminders(userId), context);
       if (resolved.kind === "AMBIGUOUS") {
         return needsClarification(
           `I found a few reminders matching that: ${resolved.matches.map((r) => `"${r.title}"`).join(", ")}. Which one?`
@@ -175,9 +175,9 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
       }
       // Reuse the existing snooze-to-now + real due-scan pipeline instead of
       // inventing a parallel "notify now" path.
-      db.snoozeReminder(resolved.item.id, 0);
+      await db.snoozeReminder(resolved.item.id, 0);
       await scanAndProcessDueReminders();
-      const verified = db.getReminder(resolved.item.id);
+      const verified = await db.getReminder(resolved.item.id);
       if (!verified) return fail(respond.replyForFailure("send another reminder", "the reminder wasn't found"));
       return ok(respond.replyForRemindAgain(verified), {
         resultSummary: `re-notified reminder ${verified.id}`,
@@ -186,7 +186,7 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
     }
 
     case "MARK_PAYMENT_PAID": {
-      const resolved = resolvePaymentAccount(intent.reference, db.listPaymentAccounts(userId), context);
+      const resolved = resolvePaymentAccount(intent.reference, await db.listPaymentAccounts(userId), context);
       if (resolved.kind === "AMBIGUOUS") {
         return needsClarification(
           `I found a few payment accounts matching that: ${resolved.matches.map((a) => `"${a.name}"`).join(", ")}. Which one?`
@@ -195,7 +195,7 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
       if (resolved.kind === "NOT_FOUND") {
         return needsClarification("I couldn't find a payment account matching that — could you be more specific?");
       }
-      const cycles = db.listPaymentCycles(resolved.item.id);
+      const cycles = await db.listPaymentCycles(resolved.item.id);
       const cycle = latestUnpaidCycle(cycles);
       if (!cycle) {
         return needsClarification(`${resolved.item.name} doesn't have an unpaid cycle right now — did you mean a different account?`);
@@ -209,8 +209,8 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
           `${resolved.item.name} has ${openCycles.length} unpaid cycles (${openCycles.map((c) => c.cycle_period).join(", ")}). Which period should I mark paid?`
         );
       }
-      const updated = db.markPaymentCyclePaid(cycle.id);
-      const verified = db.getPaymentCycle(cycle.id);
+      const updated = await db.markPaymentCyclePaid(cycle.id);
+      const verified = await db.getPaymentCycle(cycle.id);
       if (!updated || !verified || verified.status !== "paid") {
         return fail(respond.replyForFailure("mark that payment as paid", "the change didn't persist"));
       }
@@ -221,39 +221,41 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
     }
 
     case "QUERY_TODAY": {
-      const view = buildViewModel(userId);
+      const view = await buildViewModel(userId);
       return ok(respond.replyForToday(view), { resultSummary: "queried today" });
     }
 
     case "QUERY_OVERDUE": {
-      const reminders = db.listReminders(userId);
+      const reminders = await db.listReminders(userId);
       const now = new Date();
       const overdue = reminders.filter((r) => getUrgency(r, now) === "overdue").map((r) => r.title);
-      const accounts = db.listPaymentAccounts(userId).filter((a) => a.active);
-      const overduePayments = accounts
-        .flatMap((a) => db.listPaymentCycles(a.id).map((c) => ({ a, c })))
-        .filter(({ c }) => derivePaymentCycleStatus(c.due_date, now, c.status) === "overdue")
-        .map(({ a }) => a.name);
+      const accounts = (await db.listPaymentAccounts(userId)).filter((a) => a.active);
+      const overduePayments: string[] = [];
+      for (const a of accounts) {
+        const cycles = await db.listPaymentCycles(a.id);
+        if (cycles.some((c) => derivePaymentCycleStatus(c.due_date, now, c.status) === "overdue")) {
+          overduePayments.push(a.name);
+        }
+      }
       return ok(respond.replyForOverdue([...overdue, ...overduePayments]), { resultSummary: "queried overdue" });
     }
 
     case "QUERY_UPCOMING": {
-      const view = buildViewModel(userId);
+      const view = await buildViewModel(userId);
       const titles = view.upcoming.flatMap((g) => g.items.map((i) => i.title));
       return ok(respond.replyForUpcoming(titles), { resultSummary: "queried upcoming" });
     }
 
     case "QUERY_PAYMENTS": {
       const now = new Date();
-      const accounts = db.listPaymentAccounts(userId).filter((a) => a.active);
-      const lines = accounts
-        .map((a) => {
-          const cycle = latestUnpaidCycle(db.listPaymentCycles(a.id));
-          if (!cycle) return null;
-          const status = derivePaymentCycleStatus(cycle.due_date, now, cycle.status);
-          return `${a.name} (${status.replace("_", " ")}, due ${cycle.due_date})`;
-        })
-        .filter((l): l is string => Boolean(l));
+      const accounts = (await db.listPaymentAccounts(userId)).filter((a) => a.active);
+      const lines: string[] = [];
+      for (const a of accounts) {
+        const cycle = latestUnpaidCycle(await db.listPaymentCycles(a.id));
+        if (!cycle) continue;
+        const status = derivePaymentCycleStatus(cycle.due_date, now, cycle.status);
+        lines.push(`${a.name} (${status.replace("_", " ")}, due ${cycle.due_date})`);
+      }
       return ok(respond.replyForPayments(lines), { resultSummary: "queried payments" });
     }
 
@@ -268,10 +270,12 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
   }
 }
 
-function buildViewModel(userId: string) {
-  const reminders = db.listReminders(userId);
-  const paymentAccounts = db.listPaymentAccounts(userId);
-  const cyclesByAccount = new Map(paymentAccounts.map((a) => [a.id, db.listPaymentCycles(a.id)]));
+async function buildViewModel(userId: string) {
+  const reminders = await db.listReminders(userId);
+  const paymentAccounts = await db.listPaymentAccounts(userId);
+  const cyclesByAccount = new Map(
+    await Promise.all(paymentAccounts.map(async (a) => [a.id, await db.listPaymentCycles(a.id)] as const))
+  );
   return buildTodayViewModel(reminders, paymentAccounts, cyclesByAccount, new Date());
 }
 

@@ -16,13 +16,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: safety.reason }, { status: 422 });
     }
   }
-  const entry = db.updatePersonalContext(id, body);
+  const entry = await db.updatePersonalContext(id, body);
   if (!entry) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ entry });
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  db.deletePersonalContext(id);
+  await db.deletePersonalContext(id);
   return NextResponse.json({ ok: true });
 }

@@ -68,8 +68,8 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
     const { generateReminderForCycle } = await import("../lib/scheduling/paymentReminders");
     const { scanAndProcessDueReminders } = await import("../lib/scheduling/dueScan");
 
-    const userId = db.getCurrentUserId();
-    const account = db.createPaymentAccount(userId, {
+    const userId = await db.getCurrentUserId();
+    const account = await db.createPaymentAccount(userId, {
       name: "Test Card",
       payment_type: "CREDIT_CARD",
       issuer: null,
@@ -85,11 +85,11 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
       reminder_enabled: true,
       escalation_enabled: true,
     });
-    const cycle = ensureUpcomingCycle(account);
-    const reminder = generateReminderForCycle(cycle, account, userId, ["push"], "normal")!;
+    const cycle = await ensureUpcomingCycle(account);
+    const reminder = (await generateReminderForCycle(cycle, account, userId, ["push"], "normal"))!;
 
     // Backdate the reminder's occurrence to "now" so dueScan picks it up.
-    const occ = db.listOccurrences(reminder.id)[0];
+    const occ = (await db.listOccurrences(reminder.id))[0];
     const Database = (await import("better-sqlite3")).default;
     const sqlite = new Database(process.env.NOVA_SQLITE_PATH!);
     sqlite
@@ -102,10 +102,11 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
     // date) — only the backdated one is actually due this run. With no
     // channel configured at all, the EXISTING escalation engine honestly
     // stops (never fakes a "sent") rather than dispatching to a provider.
-    const mine = results.find((r) => r.occurrenceId === db.listOccurrences(reminder.id)[0].id);
+    const firstOccId = (await db.listOccurrences(reminder.id))[0].id;
+    const mine = results.find((r) => r.occurrenceId === firstOccId);
     expect(mine?.action).toBe("stopped");
     expect(mine?.reason).toBe("no_channels_available");
-    expect(db.listOccurrences(reminder.id)[0].follow_up_state).toBe("completed");
+    expect((await db.listOccurrences(reminder.id))[0].follow_up_state).toBe("completed");
   });
 
   it("Mark Paid stops all further follow-up/escalation for the linked reminder", async () => {
@@ -121,8 +122,8 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
     const originalSendPush = webpushProvider.sendPush;
     webpushProvider.sendPush = async () => ({ outcome: "sent" as const, detail: "(simulated)" });
 
-    const userId = db.getCurrentUserId();
-    const account = db.createPaymentAccount(userId, {
+    const userId = await db.getCurrentUserId();
+    const account = await db.createPaymentAccount(userId, {
       name: "Test Subscription",
       payment_type: "SUBSCRIPTION",
       issuer: null,
@@ -138,10 +139,10 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
       reminder_enabled: true,
       escalation_enabled: true,
     });
-    const cycle = ensureUpcomingCycle(account);
-    const reminder = generateReminderForCycle(cycle, account, userId, ["push"], "normal")!;
+    const cycle = await ensureUpcomingCycle(account);
+    const reminder = (await generateReminderForCycle(cycle, account, userId, ["push"], "normal"))!;
 
-    const occ = db.listOccurrences(reminder.id)[0];
+    const occ = (await db.listOccurrences(reminder.id))[0];
     const Database = (await import("better-sqlite3")).default;
     const sqlite = new Database(process.env.NOVA_SQLITE_PATH!);
     sqlite
@@ -150,14 +151,14 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
     sqlite.close();
 
     await scanAndProcessDueReminders();
-    expect(db.listOccurrences(reminder.id)[0].follow_up_state).toBe("notified");
+    expect((await db.listOccurrences(reminder.id))[0].follow_up_state).toBe("notified");
 
-    db.markPaymentCyclePaid(cycle.id);
-    expect(db.listOccurrences(reminder.id)[0].follow_up_state).toBe("completed");
+    await db.markPaymentCyclePaid(cycle.id);
+    expect((await db.listOccurrences(reminder.id))[0].follow_up_state).toBe("completed");
 
-    const before = db.listNotifications(reminder.id).length;
+    const before = (await db.listNotifications(reminder.id)).length;
     await scanAndProcessDueReminders();
-    const after = db.listNotifications(reminder.id).length;
+    const after = (await db.listNotifications(reminder.id)).length;
     expect(after).toBe(before); // no further attempts after Mark Paid
 
     webpushProvider.sendPush = originalSendPush;
@@ -168,13 +169,13 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
     const { generateMissingCycles, refreshCycleStatuses } = await import("../lib/scheduling/paymentCycles");
     const { generateMissingReminders } = await import("../lib/scheduling/paymentReminders");
 
-    const userId = db.getCurrentUserId();
-    const accounts = [
+    const userId = await db.getCurrentUserId();
+    const accounts = await Promise.all([
       { name: "Card A", type: "CREDIT_CARD" as const },
       { name: "Card B", type: "EMI" as const },
       { name: "Card C", type: "BILL" as const },
-    ].map((a) =>
-      db.createPaymentAccount(userId, {
+    ].map(async (a) =>
+      await db.createPaymentAccount(userId, {
         name: a.name,
         payment_type: a.type,
         issuer: null,
@@ -190,23 +191,23 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
         reminder_enabled: true,
         escalation_enabled: true,
       })
-    );
+    ));
 
     // Simulate the cron path running 10 times in a row.
     for (let i = 0; i < 10; i++) {
-      generateMissingCycles(userId);
-      generateMissingReminders(userId, ["push"], "normal");
-      refreshCycleStatuses(userId);
+      await generateMissingCycles(userId);
+      await generateMissingReminders(userId, ["push"], "normal");
+      await refreshCycleStatuses(userId);
     }
 
     for (const account of accounts) {
-      const cycles = db.listPaymentCycles(account.id);
+      const cycles = await db.listPaymentCycles(account.id);
       expect(cycles).toHaveLength(1); // never duplicated across 10 runs
       expect(cycles[0].reminder_id).toBeTruthy();
 
-      const linkedReminders = db
-        .listReminders(userId, { types: ["payment"] })
-        .filter((r) => r.id === cycles[0].reminder_id);
+      const linkedReminders = (await db.listReminders(userId, { types: ["payment"] })).filter(
+        (r) => r.id === cycles[0].reminder_id
+      );
       expect(linkedReminders).toHaveLength(1); // exactly one reminder per cycle, never duplicated
     }
   });

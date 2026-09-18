@@ -59,8 +59,8 @@ describe("Assistant execution pipeline", () => {
     );
 
     expect(result.reply).toMatch(/dentist/i);
-    const userId = db.getCurrentUserId();
-    const reminders = db.listReminders(userId);
+    const userId = await db.getCurrentUserId();
+    const reminders = await db.listReminders(userId);
     const created = reminders.find((r) => r.title.toLowerCase().includes("call the dentist"));
     expect(created).toBeTruthy();
     expect(created?.date).toBe("2026-09-19");
@@ -71,8 +71,8 @@ describe("Assistant execution pipeline", () => {
     const { handleAssistantMessage } = await import("../lib/assistant/pipeline");
     const { db } = await import("../lib/db");
 
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, {
       title: "Dentist call",
       date: "2026-09-19",
       time: "10:00",
@@ -83,7 +83,7 @@ describe("Assistant execution pipeline", () => {
     const result = await handleAssistantMessage("snooze the dentist call for 15 minutes", "test-session-2", new Date("2026-09-18T12:00:00"));
 
     expect(result.reply).toMatch(/snoozed/i);
-    const verified = db.getReminder(reminder.id);
+    const verified = await db.getReminder(reminder.id);
     expect(verified?.status).toBe("snoozed");
   });
 
@@ -91,8 +91,8 @@ describe("Assistant execution pipeline", () => {
     const { handleAssistantMessage } = await import("../lib/assistant/pipeline");
     const { db } = await import("../lib/db");
 
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, {
       title: "Submit the quarterly zorbex filing",
       date: "2026-09-18",
       time: "09:00",
@@ -102,7 +102,7 @@ describe("Assistant execution pipeline", () => {
 
     const result = await handleAssistantMessage("mark the zorbex filing as done", "test-session-3", new Date("2026-09-18T12:00:00"));
     expect(result.reply).toMatch(/done/i);
-    const verified = db.getReminder(reminder.id);
+    const verified = await db.getReminder(reminder.id);
     expect(verified?.status).toBe("completed");
   });
 
@@ -118,8 +118,8 @@ describe("Assistant execution pipeline", () => {
     const { handleAssistantMessage } = await import("../lib/assistant/pipeline");
     const { db } = await import("../lib/db");
 
-    const userId = db.getCurrentUserId();
-    db.createReminder(userId, {
+    const userId = await db.getCurrentUserId();
+    await db.createReminder(userId, {
       title: "Overdue task",
       date: "2026-09-10",
       time: "09:00",
@@ -137,8 +137,8 @@ describe("Assistant execution pipeline", () => {
     const { db } = await import("../lib/db");
     const { ensureUpcomingCycle } = await import("../lib/scheduling/paymentCycles");
 
-    const userId = db.getCurrentUserId();
-    const account = db.createPaymentAccount(userId, {
+    const userId = await db.getCurrentUserId();
+    const account = await db.createPaymentAccount(userId, {
       name: "Visa Card",
       payment_type: "CREDIT_CARD",
       issuer: "Chase",
@@ -154,11 +154,11 @@ describe("Assistant execution pipeline", () => {
       reminder_enabled: true,
       escalation_enabled: true,
     });
-    const cycle = ensureUpcomingCycle(account, new Date("2026-09-18T12:00:00"));
+    const cycle = await ensureUpcomingCycle(account, new Date("2026-09-18T12:00:00"));
 
     const result = await handleAssistantMessage("mark the Visa card as paid", "test-session-6", new Date("2026-09-18T12:00:00"));
     expect(result.reply).toMatch(/paid/i);
-    const verified = db.getPaymentCycle(cycle.id);
+    const verified = await db.getPaymentCycle(cycle.id);
     expect(verified?.status).toBe("paid");
   });
 
@@ -166,9 +166,9 @@ describe("Assistant execution pipeline", () => {
     const { handleAssistantMessage } = await import("../lib/assistant/pipeline");
     const { db } = await import("../lib/db");
 
-    const userId = db.getCurrentUserId();
-    db.createReminder(userId, { title: "Call the dentist", date: "2026-09-19", time: "10:00", priority: "medium", types: ["call"] });
-    db.createReminder(userId, { title: "Call the plumber", date: "2026-09-19", time: "11:00", priority: "medium", types: ["call"] });
+    const userId = await db.getCurrentUserId();
+    await db.createReminder(userId, { title: "Call the dentist", date: "2026-09-19", time: "10:00", priority: "medium", types: ["call"] });
+    await db.createReminder(userId, { title: "Call the plumber", date: "2026-09-19", time: "11:00", priority: "medium", types: ["call"] });
 
     const result = await handleAssistantMessage("snooze the call for 15 minutes", "test-session-7", new Date("2026-09-18T12:00:00"));
     expect(result.reply.toLowerCase()).toMatch(/which one|couldn't find/);
@@ -182,8 +182,8 @@ describe("Assistant execution pipeline", () => {
     const result = await handleAssistantMessage("snooze it for 20 minutes", "test-session-8", new Date("2026-09-18T12:05:00"));
 
     expect(result.reply).toMatch(/snoozed/i);
-    const userId = db.getCurrentUserId();
-    const reminders = db.listReminders(userId);
+    const userId = await db.getCurrentUserId();
+    const reminders = await db.listReminders(userId);
     const plants = reminders.find((r) => r.title.toLowerCase().includes("water the plants"));
     expect(plants?.status).toBe("snoozed");
   });
@@ -192,12 +192,12 @@ describe("Assistant execution pipeline", () => {
     const { handleAssistantMessage } = await import("../lib/assistant/pipeline");
     const { db } = await import("../lib/db");
 
-    const userId = db.getCurrentUserId();
-    const reminder = db.createReminder(userId, { title: "Keep me", date: "2026-09-19", time: "10:00", priority: "medium", types: ["task"] });
+    const userId = await db.getCurrentUserId();
+    const reminder = await db.createReminder(userId, { title: "Keep me", date: "2026-09-19", time: "10:00", priority: "medium", types: ["task"] });
 
     const result = await handleAssistantMessage("delete the keep me reminder", "test-session-9", new Date("2026-09-18T12:00:00"));
     expect(result.reply.toLowerCase()).not.toMatch(/deleted/);
-    const stillThere = db.getReminder(reminder.id);
+    const stillThere = await db.getReminder(reminder.id);
     expect(stillThere).not.toBeNull();
   });
 });

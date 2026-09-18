@@ -8,8 +8,8 @@ import { googleCalendarConnector } from "@/lib/integrations/googleCalendar";
  * integration_accounts.
  */
 export async function GET() {
-  const userId = db.getCurrentUserId();
-  const account = db.getIntegrationAccount(userId, "google_calendar");
+  const userId = await db.getCurrentUserId();
+  const account = await db.getIntegrationAccount(userId, "google_calendar");
   return NextResponse.json({
     integrations: [
       {

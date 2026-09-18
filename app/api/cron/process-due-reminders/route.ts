@@ -28,11 +28,11 @@ export async function POST(req: NextRequest) {
   // scan — generate any missing cycles/reminders and refresh derived
   // statuses, all idempotent (see lib/scheduling/paymentCycles.ts and
   // paymentReminders.ts), then continue into the unchanged existing scan.
-  const userId = db.getCurrentUserId();
-  const preferences = db.getPreferences(userId);
-  generateMissingCycles(userId);
-  generateMissingReminders(userId, preferences.preferred_channels, preferences.default_intensity);
-  refreshCycleStatuses(userId);
+  const userId = await db.getCurrentUserId();
+  const preferences = await db.getPreferences(userId);
+  await generateMissingCycles(userId);
+  await generateMissingReminders(userId, preferences.preferred_channels, preferences.default_intensity);
+  await refreshCycleStatuses(userId);
 
   const results = await scanAndProcessDueReminders();
 
