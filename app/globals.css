@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+html,
+body {
+  background-color: #0b0d12;
+  color: #eef0f4;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #232833;
+  border-radius: 999px;
+}
+
+.nova-card {
+  @apply rounded-2xl border border-nova-border bg-nova-surface;
+}
+
+.nova-card-hover {
+  @apply transition-colors duration-200 hover:border-nova-primary/40 hover:bg-nova-surface2;
+}
+
+.nova-btn-primary {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-nova-primary to-nova-primary2 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-nova-primary/20 transition-transform duration-150 active:scale-[0.97] hover:brightness-110;
+}
+
+.nova-btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl border border-nova-border bg-nova-surface2 px-4 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:border-nova-primary/40 active:scale-[0.97];
+}
+
+.nova-chip {
+  @apply inline-flex items-center gap-1.5 rounded-full border border-nova-border bg-nova-surface2 px-3 py-1 text-xs font-medium text-nova-muted transition-colors duration-150;
+}
+
+.nova-chip-active {
+  @apply border-transparent bg-gradient-to-r from-nova-primary to-nova-primary2 text-white;
+}
