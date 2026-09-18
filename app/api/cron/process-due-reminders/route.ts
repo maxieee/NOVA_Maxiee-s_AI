@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { scanAndProcessDueReminders } from "@/lib/scheduling/dueScan";
 import { generateMissingCycles, refreshCycleStatuses } from "@/lib/scheduling/paymentCycles";
 import { generateMissingReminders } from "@/lib/scheduling/paymentReminders";
+import { runProactiveIntelligence } from "@/lib/proactive/engine";
 
 /**
  * Server-side "source of truth" cron endpoint. Meant to be invoked by a
@@ -33,5 +34,13 @@ export async function POST(req: NextRequest) {
   refreshCycleStatuses(userId);
 
   const results = await scanAndProcessDueReminders();
-  return NextResponse.json({ processed: results.length, results });
+
+  // Proactive Intelligence (V8): runs in this SAME cron invocation, after
+  // the existing due-reminder scan — not a second scheduler. Purely
+  // additive/observational: it never mutates reminder/occurrence state,
+  // only reads it and (subject to quiet hours + its own per-rule cooldown)
+  // sends alerts through the same honest provider abstraction.
+  const proactive = await runProactiveIntelligence();
+
+  return NextResponse.json({ processed: results.length, results, proactive });
 }

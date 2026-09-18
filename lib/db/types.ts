@@ -14,6 +14,8 @@ import type {
   PaymentAccountInput,
   PaymentAccountUpdate,
   PaymentCycle,
+  ProactiveNotificationRecord,
+  ProactiveNotificationOutcome,
 } from "@/types/reminder";
 
 /**
@@ -110,6 +112,26 @@ export interface DataLayer {
   linkPaymentCycleReminder(cycleId: string, reminderId: string): void;
   updatePaymentCycleStatus(cycleId: string, status: PaymentCycle["status"]): void;
   markPaymentCyclePaid(cycleId: string): PaymentCycle | null;
+
+  // V8: Proactive Intelligence
+  /** Most recent firing for this exact rule+subject, if any (used for cooldown checks). */
+  getLastProactiveNotification(
+    userId: string,
+    ruleId: string,
+    subjectType: string,
+    subjectId: string
+  ): ProactiveNotificationRecord | null;
+  logProactiveNotification(args: {
+    userId: string;
+    ruleId: string;
+    subjectType: "reminder" | "payment_cycle" | "cluster";
+    subjectId: string;
+    priority: "low" | "medium" | "high" | "urgent";
+    channel: NotificationChannel | null;
+    message: string;
+    outcome: ProactiveNotificationOutcome;
+  }): ProactiveNotificationRecord;
+  listProactiveNotifications(userId: string, limit?: number): ProactiveNotificationRecord[];
 }
 
 export interface ReminderFilter {

@@ -227,6 +227,9 @@ export interface UserPreferences {
   escalation_threshold_repeats: number;
   /** The number NOVA calls/texts on escalation — the person's own phone, not any reminder's call_details contact. */
   phone_number: string | null;
+
+  /** V8: global on/off switch for proactive intelligence (see lib/proactive/). */
+  proactive_intelligence_enabled: boolean;
 }
 
 export type UserPreferencesUpdate = Partial<
@@ -286,6 +289,23 @@ export interface PaymentAccount {
   escalation_enabled: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// --- V8: Proactive Intelligence --------------------------------------------
+
+export type ProactiveNotificationOutcome = NotificationOutcome | "suppressed_quiet_hours" | "suppressed_cooldown";
+
+export interface ProactiveNotificationRecord {
+  id: string;
+  user_id: string;
+  rule_id: string;
+  subject_type: "reminder" | "payment_cycle" | "cluster";
+  subject_id: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  channel: NotificationChannel | null;
+  message: string;
+  outcome: ProactiveNotificationOutcome;
+  fired_at: string;
 }
 
 export type PaymentAccountInput = Omit<PaymentAccount, "id" | "user_id" | "created_at" | "updated_at">;

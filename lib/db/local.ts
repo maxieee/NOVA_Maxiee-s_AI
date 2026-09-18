@@ -26,6 +26,8 @@ import type {
   PaymentAccountInput,
   PaymentAccountUpdate,
   PaymentCycle,
+  ProactiveNotificationRecord,
+  ProactiveNotificationOutcome,
 } from "@/types/reminder";
 import { seedIfEmpty } from "./seed-data";
 
@@ -199,6 +201,7 @@ class LocalDataLayer implements DataLayer {
       max_follow_up_attempts: row?.max_follow_up_attempts ?? 8,
       escalation_threshold_repeats: row?.escalation_threshold_repeats ?? 3,
       phone_number: row?.phone_number ?? null,
+      proactive_intelligence_enabled: row ? !!row.proactive_intelligence_enabled : true,
     };
   }
 
@@ -232,6 +235,7 @@ class LocalDataLayer implements DataLayer {
       max_follow_up_attempts: "max_follow_up_attempts",
       escalation_threshold_repeats: "escalation_threshold_repeats",
       phone_number: "phone_number",
+      proactive_intelligence_enabled: "proactive_intelligence_enabled",
     };
 
     const sets: string[] = [];
@@ -972,6 +976,82 @@ class LocalDataLayer implements DataLayer {
     });
     tx();
     return this.getPaymentCycle(cycleId);
+  }
+
+  // --- V8: Proactive Intelligence --------------------------------------
+
+  private rowToProactiveNotification(row: any): ProactiveNotificationRecord {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      rule_id: row.rule_id,
+      subject_type: row.subject_type,
+      subject_id: row.subject_id,
+      priority: row.priority,
+      channel: row.channel,
+      message: row.message,
+      outcome: row.outcome,
+      fired_at: row.fired_at,
+    };
+  }
+
+  getLastProactiveNotification(
+    userId: string,
+    ruleId: string,
+    subjectType: string,
+    subjectId: string
+  ): ProactiveNotificationRecord | null {
+    const db = getDb();
+    const row = db
+      .prepare(
+        `select * from proactive_notifications
+         where user_id = ? and rule_id = ? and subject_type = ? and subject_id = ?
+         order by fired_at desc limit 1`
+      )
+      .get(userId, ruleId, subjectType, subjectId) as any;
+    return row ? this.rowToProactiveNotification(row) : null;
+  }
+
+  logProactiveNotification(args: {
+    userId: string;
+    ruleId: string;
+    subjectType: "reminder" | "payment_cycle" | "cluster";
+    subjectId: string;
+    priority: "low" | "medium" | "high" | "urgent";
+    channel: NotificationChannel | null;
+    message: string;
+    outcome: ProactiveNotificationOutcome;
+  }): ProactiveNotificationRecord {
+    const db = getDb();
+    const id = newId();
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into proactive_notifications (id, user_id, rule_id, subject_type, subject_id, priority, channel, message, outcome, fired_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      args.userId,
+      args.ruleId,
+      args.subjectType,
+      args.subjectId,
+      args.priority,
+      args.channel,
+      args.message,
+      args.outcome,
+      now
+    );
+    return this.rowToProactiveNotification(
+      db.prepare(`select * from proactive_notifications where id = ?`).get(id)
+    );
+  }
+
+  listProactiveNotifications(userId: string, limit = 50): ProactiveNotificationRecord[] {
+    const db = getDb();
+    return (
+      db
+        .prepare(`select * from proactive_notifications where user_id = ? order by fired_at desc limit ?`)
+        .all(userId, limit) as any[]
+    ).map((r) => this.rowToProactiveNotification(r));
   }
 }
 

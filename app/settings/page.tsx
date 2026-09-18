@@ -4,6 +4,7 @@ import { PersonalizationForm } from "@/components/settings/PersonalizationForm";
 import { PersonalAssistantMemory } from "@/components/settings/PersonalAssistantMemory";
 import { PushNotificationSettings } from "@/components/settings/PushNotificationSettings";
 import { PhoneCallSettings } from "@/components/settings/PhoneCallSettings";
+import { ProactiveIntelligenceSettings } from "@/components/settings/ProactiveIntelligenceSettings";
 import { isTwilioConfigured } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export default function SettingsPage() {
   const userId = db.getCurrentUserId();
   const prefs = db.getPreferences(userId);
   const personalContext = db.listPersonalContext(userId);
+  const proactiveHistory = db.listProactiveNotifications(userId, 10);
 
   return (
     <div>
@@ -64,6 +66,13 @@ export default function SettingsPage() {
 
         <div className="md:col-span-2">
           <PhoneCallSettings initialPhoneNumber={prefs.phone_number} />
+        </div>
+
+        <div className="md:col-span-2">
+          <ProactiveIntelligenceSettings
+            enabled={prefs.proactive_intelligence_enabled}
+            history={proactiveHistory}
+          />
         </div>
 
         <div className="nova-card p-5 md:col-span-2">

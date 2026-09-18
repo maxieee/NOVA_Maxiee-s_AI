@@ -237,6 +237,24 @@ export function ensureSchema(db: Database.Database) {
 
     create index if not exists idx_payment_cycles_account on payment_cycles(payment_account_id);
     create index if not exists idx_payment_cycles_reminder on payment_cycles(reminder_id);
+
+    -- 0008_proactive_intelligence.sql (V8) — per-rule/subject firing log,
+    -- used both for anti-spam cooldown/dedup and a "recent activity" view.
+    create table if not exists proactive_notifications (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      rule_id text not null,
+      subject_type text not null,
+      subject_id text not null,
+      priority text not null,
+      channel text,
+      message text not null,
+      outcome text not null,
+      fired_at text not null default (datetime('now'))
+    );
+
+    create index if not exists idx_proactive_notifications_lookup
+      on proactive_notifications(user_id, rule_id, subject_type, subject_id, fired_at);
   `);
 
   migrateAddColumns(db);
@@ -308,4 +326,11 @@ function migrateAddColumns(db: Database.Database) {
   // 0006_call_escalation.sql — real phone-call escalation.
   addColumn("user_preferences", "phone_number", "phone_number text");
   addColumn("notifications", "provider_ref", "provider_ref text");
+
+  // 0008_proactive_intelligence.sql (V8)
+  addColumn(
+    "user_preferences",
+    "proactive_intelligence_enabled",
+    "proactive_intelligence_enabled integer not null default 1"
+  );
 }
