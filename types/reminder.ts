@@ -102,6 +102,17 @@ export interface FollowUpDetails {
   last_contacted_at?: string | null;
 }
 
+/** Occurrence-level follow-up lifecycle state (see lib/notifications/followUpConfig.ts). */
+export type FollowUpState =
+  | "pending"
+  | "due"
+  | "notified"
+  | "waiting"
+  | "follow_up_sent"
+  | "escalated"
+  | "completed"
+  | "cancelled";
+
 export interface ReminderOccurrence {
   id: string;
   reminder_id: string;
@@ -110,6 +121,11 @@ export interface ReminderOccurrence {
   status: "pending" | "fired" | "acknowledged" | "missed" | "cancelled";
   repeat_count: number;
   escalated: boolean;
+  follow_up_state: FollowUpState;
+  notification_attempt_count: number;
+  escalation_level: number;
+  last_notified_at?: string | null;
+  next_follow_up_at?: string | null;
 }
 
 export interface NotificationLogEntry {
@@ -117,7 +133,10 @@ export interface NotificationLogEntry {
   reminder_id: string;
   occurrence_id: string;
   sent_at: string;
-  channel: "in_app" | "push" | "email";
+  channel: "in_app" | "push" | "email" | "sms" | "call";
+  outcome?: NotificationOutcome;
+  attempt_number?: number;
+  escalation_level?: number;
   message: string;
 }
 
@@ -134,6 +153,7 @@ export interface ReminderHistoryEntry {
     | "escalated";
   detail?: string | null;
   created_at: string;
+  occurrence_id?: string | null;
 }
 
 export interface Reminder {
@@ -200,6 +220,10 @@ export interface UserPreferences {
   repeat_ignored_reminders: boolean;
   escalate_urgent_reminders: boolean;
   preferred_channels: NotificationChannel[];
+
+  // Follow-up engine tuning (defaults mirror lib/notifications/followUpConfig.ts).
+  max_follow_up_attempts: number;
+  escalation_threshold_repeats: number;
 }
 
 export type UserPreferencesUpdate = Partial<

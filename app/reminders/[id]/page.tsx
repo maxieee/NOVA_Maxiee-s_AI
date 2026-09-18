@@ -18,7 +18,36 @@ export default async function ReminderDetailPage({
   if (!reminder) notFound();
 
   const history = db.listHistory(id);
+  const notifications = db.listNotifications(id);
   const occurrences = db.listOccurrences(id);
+
+  // Real, chronological activity timeline — derived only from actual
+  // reminder_history/notifications rows, never fabricated.
+  const activity = [
+    // "notified"/"escalated" history rows duplicate the richer notifications
+    // rows below (same event, less detail), so they're skipped here.
+    ...history
+      .filter((h) => h.action !== "notified" && h.action !== "escalated")
+      .map((h) => ({
+        at: h.created_at,
+        text:
+          h.action === "created"
+            ? "Reminder created"
+            : h.action === "snoozed"
+              ? `Snoozed${h.detail ? ` (${h.detail})` : ""}`
+              : h.action === "completed"
+                ? "Marked done"
+                : h.action === "cancelled"
+                  ? "Cancelled"
+                  : h.detail ?? h.action,
+      })),
+    ...notifications.map((n) => ({
+      at: n.sent_at,
+      text: `${n.channel} attempt #${n.attempt_number ?? 1}${
+        (n.escalation_level ?? 0) > 0 ? ` (escalation L${n.escalation_level})` : ""
+      }: ${n.outcome ?? "sent"}`,
+    })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
   const urgency = getUrgency(reminder);
   const isDone = reminder.status === "completed" || reminder.status === "cancelled";
 
@@ -186,6 +215,19 @@ export default async function ReminderDetailPage({
                 </li>
               ))}
               {occurrences.length === 0 && <li className="text-nova-muted">None scheduled</li>}
+            </ul>
+          </div>
+
+          <div className="nova-card p-5">
+            <h3 className="mb-3 text-sm font-semibold text-white">Activity</h3>
+            <ul className="space-y-3 text-sm">
+              {activity.map((a, i) => (
+                <li key={i}>
+                  <p className="text-white">{a.text}</p>
+                  <p className="text-xs text-nova-muted">{new Date(a.at).toLocaleString()}</p>
+                </li>
+              ))}
+              {activity.length === 0 && <li className="text-nova-muted">No activity yet</li>}
             </ul>
           </div>
 

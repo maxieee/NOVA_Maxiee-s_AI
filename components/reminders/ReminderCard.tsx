@@ -4,6 +4,7 @@ import { getUrgency, URGENCY_LABEL, URGENCY_COLOR } from "@/lib/scheduling/urgen
 import { formatFriendlyDate, formatTime } from "@/lib/utils/date";
 import { TypeBadges } from "./TypeBadges";
 import { ReminderActions } from "./ReminderActions";
+import { FollowUpBadge } from "./FollowUpBadge";
 
 const URGENCY_DOT: Record<string, string> = {
   overdue: "bg-nova-urgent",
@@ -13,7 +14,15 @@ const URGENCY_DOT: Record<string, string> = {
   completed: "bg-nova-good",
 };
 
-export function ReminderCard({ reminder, now }: { reminder: Reminder; now?: Date }) {
+export function ReminderCard({
+  reminder,
+  now,
+  followUp,
+}: {
+  reminder: Reminder;
+  now?: Date;
+  followUp?: { state: import("@/types/reminder").FollowUpState; lastNotifiedAt: string | null } | null;
+}) {
   const urgency = getUrgency(reminder, now);
   const isDone = reminder.status === "completed" || reminder.status === "cancelled";
 
@@ -38,6 +47,10 @@ export function ReminderCard({ reminder, now }: { reminder: Reminder; now?: Date
           {URGENCY_LABEL[urgency]}
         </span>
       </div>
+
+      {followUp && (
+        <FollowUpBadge state={followUp.state} lastNotifiedAt={followUp.lastNotifiedAt} now={now} />
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <TypeBadges types={reminder.types} />

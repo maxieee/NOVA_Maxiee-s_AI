@@ -192,6 +192,8 @@ class LocalDataLayer implements DataLayer {
       repeat_ignored_reminders: row ? !!row.repeat_ignored_reminders : true,
       escalate_urgent_reminders: row ? !!row.escalate_urgent_reminders : true,
       preferred_channels: channelRows.map((c) => c.channel),
+      max_follow_up_attempts: row?.max_follow_up_attempts ?? 8,
+      escalation_threshold_repeats: row?.escalation_threshold_repeats ?? 3,
     };
   }
 
@@ -222,6 +224,8 @@ class LocalDataLayer implements DataLayer {
       default_intensity: "default_intensity",
       repeat_ignored_reminders: "repeat_ignored_reminders",
       escalate_urgent_reminders: "escalate_urgent_reminders",
+      max_follow_up_attempts: "max_follow_up_attempts",
+      escalation_threshold_repeats: "escalation_threshold_repeats",
     };
 
     const sets: string[] = [];
@@ -313,28 +317,43 @@ class LocalDataLayer implements DataLayer {
     channel: NotificationChannel | "in_app";
     message: string;
     outcome: NotificationOutcome;
+    attemptNumber?: number;
+    escalationLevel?: number;
   }): void {
     const db = getDb();
+    const now = new Date().toISOString();
     db.prepare(
-      `insert into notifications (id, reminder_id, occurrence_id, sent_at, channel, message, outcome)
-       values (?, ?, ?, ?, ?, ?, ?)`
+      `insert into notifications (id, reminder_id, occurrence_id, sent_at, channel, message, outcome, attempt_number, escalation_level)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newId(),
       args.reminderId,
       args.occurrenceId,
-      new Date().toISOString(),
+      now,
       args.channel,
       args.message,
-      args.outcome
+      args.outcome,
+      args.attemptNumber ?? 1,
+      args.escalationLevel ?? 0
     );
+    const action = (args.escalationLevel ?? 0) > 0 ? "escalated" : "notified";
     db.prepare(
-      `insert into reminder_history (id, reminder_id, action, detail, created_at) values (?, ?, 'notified', ?, ?)`
+      `insert into reminder_history (id, reminder_id, action, detail, created_at, occurrence_id) values (?, ?, ?, ?, ?, ?)`
     ).run(
       newId(),
       args.reminderId,
-      `${args.channel}: ${args.outcome}`,
-      new Date().toISOString()
+      action,
+      `${args.channel}: ${args.outcome} (attempt ${args.attemptNumber ?? 1})`,
+      now,
+      args.occurrenceId
     );
+  }
+
+  listNotifications(reminderId: string) {
+    const db = getDb();
+    return db
+      .prepare(`select * from notifications where reminder_id = ? order by sent_at desc`)
+      .all(reminderId) as import("@/types/reminder").NotificationLogEntry[];
   }
 
   listReminders(userId: string, filter?: ReminderFilter): Reminder[] {
@@ -516,6 +535,13 @@ class LocalDataLayer implements DataLayer {
       db.prepare(
         `update reminder_occurrences set status = 'acknowledged' where reminder_id = ? and status in ('pending','fired')`
       ).run(id);
+      // DONE must immediately stop all future follow-up for every occurrence
+      // of this reminder — not just the currently-firing one.
+      db.prepare(
+        `update reminder_occurrences
+         set follow_up_state = 'completed', next_follow_up_at = null
+         where reminder_id = ? and follow_up_state not in ('completed','cancelled')`
+      ).run(id);
       db.prepare(
         `insert into reminder_history (id, reminder_id, action, detail, created_at) values (?, ?, 'completed', null, ?)`
       ).run(newId(), id, now);
@@ -534,11 +560,16 @@ class LocalDataLayer implements DataLayer {
         now.toISOString(),
         id
       );
+      // Snooze stops the CURRENT follow-up sequence...
       db.prepare(
-        `update reminder_occurrences set status = 'cancelled' where reminder_id = ? and status = 'pending'`
+        `update reminder_occurrences
+         set status = 'cancelled', follow_up_state = 'cancelled', next_follow_up_at = null
+         where reminder_id = ? and status = 'pending'`
       ).run(id);
+      // ...and creates a fresh occurrence at the new time with an
+      // independent, un-notified follow-up lifecycle (attempt count 0).
       db.prepare(
-        `insert into reminder_occurrences (id, reminder_id, scheduled_for, status) values (?, ?, ?, 'pending')`
+        `insert into reminder_occurrences (id, reminder_id, scheduled_for, status, follow_up_state) values (?, ?, ?, 'pending', 'pending')`
       ).run(newId(), id, nextFire);
       db.prepare(
         `insert into reminder_history (id, reminder_id, action, detail, created_at) values (?, ?, 'snoozed', ?, ?)`
@@ -594,6 +625,35 @@ class LocalDataLayer implements DataLayer {
     ).run(new Date().toISOString(), escalated ? 1 : 0, occurrenceId);
   }
 
+  updateOccurrenceFollowUp(
+    occurrenceId: string,
+    fields: Partial<{
+      follow_up_state: string;
+      notification_attempt_count: number;
+      escalation_level: number;
+      last_notified_at: string | null;
+      next_follow_up_at: string | null;
+    }>
+  ): void {
+    const db = getDb();
+    const columns = Object.keys(fields);
+    if (columns.length === 0) return;
+    const sets = columns.map((c) => `${c} = @${c}`).join(", ");
+    db.prepare(`update reminder_occurrences set ${sets} where id = @id`).run({
+      ...fields,
+      id: occurrenceId,
+    });
+  }
+
+  stopOccurrenceFollowUp(reminderId: string, state: "completed" | "cancelled"): void {
+    const db = getDb();
+    db.prepare(
+      `update reminder_occurrences
+       set follow_up_state = ?, next_follow_up_at = null
+       where reminder_id = ? and follow_up_state not in ('completed','cancelled')`
+    ).run(state, reminderId);
+  }
+
   listHistory(reminderId: string): ReminderHistoryEntry[] {
     const db = getDb();
     return db
@@ -601,11 +661,16 @@ class LocalDataLayer implements DataLayer {
       .all(reminderId) as ReminderHistoryEntry[];
   }
 
-  addHistory(reminderId: string, action: ReminderHistoryEntry["action"], detail?: string): void {
+  addHistory(
+    reminderId: string,
+    action: ReminderHistoryEntry["action"],
+    detail?: string,
+    occurrenceId?: string
+  ): void {
     const db = getDb();
     db.prepare(
-      `insert into reminder_history (id, reminder_id, action, detail, created_at) values (?, ?, ?, ?, ?)`
-    ).run(newId(), reminderId, action, detail ?? null, new Date().toISOString());
+      `insert into reminder_history (id, reminder_id, action, detail, created_at, occurrence_id) values (?, ?, ?, ?, ?, ?)`
+    ).run(newId(), reminderId, action, detail ?? null, new Date().toISOString(), occurrenceId ?? null);
   }
 
   upsertPushSubscription(

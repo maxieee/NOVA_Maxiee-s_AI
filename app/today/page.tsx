@@ -39,6 +39,13 @@ export default function TodayPage() {
   );
   const displayName = prefs.preferred_name || prefs.display_name;
 
+  function followUpFor(reminderId: string) {
+    const occs = db.listOccurrences(reminderId);
+    const latest = occs.filter((o) => o.follow_up_state !== "pending" && o.follow_up_state !== "due").pop();
+    if (!latest) return null;
+    return { state: latest.follow_up_state, lastNotifiedAt: latest.last_notified_at ?? null };
+  }
+
   return (
     <div>
       <PageHeader
@@ -66,7 +73,7 @@ export default function TodayPage() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {needsAttention.map((r) => (
-              <ReminderCard key={r.id} reminder={r} now={now} />
+              <ReminderCard key={r.id} reminder={r} now={now} followUp={followUpFor(r.id)} />
             ))}
           </div>
         )}
@@ -85,7 +92,7 @@ export default function TodayPage() {
                 </p>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {group.items.map((r) => (
-                    <ReminderCard key={r.id} reminder={r} now={now} />
+                    <ReminderCard key={r.id} reminder={r} now={now} followUp={followUpFor(r.id)} />
                   ))}
                 </div>
               </div>

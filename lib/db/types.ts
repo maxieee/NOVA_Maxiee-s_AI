@@ -43,7 +43,10 @@ export interface DataLayer {
     channel: NotificationChannel | "in_app";
     message: string;
     outcome: NotificationOutcome;
+    attemptNumber?: number;
+    escalationLevel?: number;
   }): void;
+  listNotifications(reminderId: string): import("@/types/reminder").NotificationLogEntry[];
 
   listReminders(userId: string, filter?: ReminderFilter): Reminder[];
   getReminder(id: string): Reminder | null;
@@ -57,9 +60,25 @@ export interface DataLayer {
   listUpcomingOccurrences(userId: string): (ReminderOccurrence & { reminder: Reminder })[];
   addOccurrence(reminderId: string, scheduledFor: string): ReminderOccurrence;
   markOccurrenceNotified(occurrenceId: string, escalated: boolean): void;
+  updateOccurrenceFollowUp(
+    occurrenceId: string,
+    fields: Partial<{
+      follow_up_state: import("@/types/reminder").FollowUpState;
+      notification_attempt_count: number;
+      escalation_level: number;
+      last_notified_at: string | null;
+      next_follow_up_at: string | null;
+    }>
+  ): void;
+  stopOccurrenceFollowUp(reminderId: string, state: "completed" | "cancelled"): void;
 
   listHistory(reminderId: string): ReminderHistoryEntry[];
-  addHistory(reminderId: string, action: ReminderHistoryEntry["action"], detail?: string): void;
+  addHistory(
+    reminderId: string,
+    action: ReminderHistoryEntry["action"],
+    detail?: string,
+    occurrenceId?: string
+  ): void;
 
   upsertPushSubscription(
     userId: string,

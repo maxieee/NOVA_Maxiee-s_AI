@@ -32,6 +32,8 @@ export function ensureSchema(db: Database.Database) {
       default_intensity text not null default 'normal',
       repeat_ignored_reminders integer not null default 1,
       escalate_urgent_reminders integer not null default 1,
+      max_follow_up_attempts integer not null default 8,
+      escalation_threshold_repeats integer not null default 3,
       updated_at text not null default (datetime('now'))
     );
 
@@ -142,7 +144,12 @@ export function ensureSchema(db: Database.Database) {
       fired_at text,
       status text not null default 'pending',
       repeat_count integer not null default 0,
-      escalated integer not null default 0
+      escalated integer not null default 0,
+      follow_up_state text not null default 'pending',
+      notification_attempt_count integer not null default 0,
+      escalation_level integer not null default 0,
+      last_notified_at text,
+      next_follow_up_at text
     );
 
     create index if not exists idx_occurrences_reminder on reminder_occurrences(reminder_id);
@@ -154,7 +161,9 @@ export function ensureSchema(db: Database.Database) {
       sent_at text not null default (datetime('now')),
       channel text not null default 'in_app',
       message text not null,
-      outcome text not null default 'sent'
+      outcome text not null default 'sent',
+      attempt_number integer not null default 1,
+      escalation_level integer not null default 0
     );
 
     create table if not exists reminder_history (
@@ -162,7 +171,8 @@ export function ensureSchema(db: Database.Database) {
       reminder_id text not null references reminders(id) on delete cascade,
       action text not null,
       detail text,
-      created_at text not null default (datetime('now'))
+      created_at text not null default (datetime('now')),
+      occurrence_id text references reminder_occurrences(id) on delete set null
     );
 
     create index if not exists idx_history_reminder on reminder_history(reminder_id);
@@ -224,4 +234,28 @@ function migrateAddColumns(db: Database.Database) {
   );
   addColumn("reminders", "intensity", "intensity text not null default 'normal'");
   addColumn("notifications", "outcome", "outcome text not null default 'sent'");
+
+  // 0005_followup_engine.sql — occurrence-level follow-up engine state.
+  addColumn("user_preferences", "max_follow_up_attempts", "max_follow_up_attempts integer not null default 8");
+  addColumn(
+    "user_preferences",
+    "escalation_threshold_repeats",
+    "escalation_threshold_repeats integer not null default 3"
+  );
+  addColumn(
+    "reminder_occurrences",
+    "follow_up_state",
+    "follow_up_state text not null default 'pending'"
+  );
+  addColumn(
+    "reminder_occurrences",
+    "notification_attempt_count",
+    "notification_attempt_count integer not null default 0"
+  );
+  addColumn("reminder_occurrences", "escalation_level", "escalation_level integer not null default 0");
+  addColumn("reminder_occurrences", "last_notified_at", "last_notified_at text");
+  addColumn("reminder_occurrences", "next_follow_up_at", "next_follow_up_at text");
+  addColumn("notifications", "attempt_number", "attempt_number integer not null default 1");
+  addColumn("notifications", "escalation_level", "escalation_level integer not null default 0");
+  addColumn("reminder_history", "occurrence_id", "occurrence_id text");
 }

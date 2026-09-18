@@ -196,6 +196,33 @@ export function PersonalizationForm({ preferences }: { preferences: UserPreferen
         </label>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-nova-muted">
+            Max follow-up attempts
+          </span>
+          <input
+            type="number"
+            min={1}
+            className={inputClass}
+            value={form.max_follow_up_attempts}
+            onChange={(e) => set("max_follow_up_attempts", parseInt(e.target.value, 10) || 8)}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-nova-muted">
+            Escalation threshold (repeats)
+          </span>
+          <input
+            type="number"
+            min={1}
+            className={inputClass}
+            value={form.escalation_threshold_repeats}
+            onChange={(e) => set("escalation_threshold_repeats", parseInt(e.target.value, 10) || 3)}
+          />
+        </label>
+      </div>
+
       <div className="flex items-center gap-3">
         <button type="button" onClick={save} disabled={saving} className="nova-btn-primary">
           {saving ? "Saving…" : "Save Personalization"}
