@@ -19,6 +19,7 @@ import type {
   FollowUpDetails,
   RecurrenceRule,
   PersonalContextEntry,
+  MemorySource,
   NotificationChannel,
   NotificationOutcome,
   PushSubscriptionRecord,
@@ -273,47 +274,66 @@ class LocalDataLayer implements DataLayer {
     return this.getPreferences(userId);
   }
 
-  listPersonalContext(userId: string): PersonalContextEntry[] {
+  private rowToPersonalContext(row: Record<string, unknown>): PersonalContextEntry {
+    return {
+      ...(row as Omit<PersonalContextEntry, "active">),
+      active: !!row.active,
+    } as PersonalContextEntry;
+  }
+
+  listPersonalContext(userId: string, options?: { includeInactive?: boolean }): PersonalContextEntry[] {
     const db = getDb();
-    return db
-      .prepare(`select * from personal_context_entries where user_id = ? order by created_at desc`)
-      .all(userId) as PersonalContextEntry[];
+    const rows = options?.includeInactive
+      ? db
+          .prepare(`select * from personal_context_entries where user_id = ? order by created_at desc`)
+          .all(userId)
+      : db
+          .prepare(
+            `select * from personal_context_entries where user_id = ? and active = 1 order by created_at desc`
+          )
+          .all(userId);
+    return (rows as Record<string, unknown>[]).map((r) => this.rowToPersonalContext(r));
   }
 
   addPersonalContext(
     userId: string,
-    entry: { category?: string; label: string; value: string }
+    entry: { category?: string; label: string; value: string; source?: MemorySource }
   ): PersonalContextEntry {
     const db = getDb();
     const id = newId();
     const now = new Date().toISOString();
     db.prepare(
-      `insert into personal_context_entries (id, user_id, category, label, value, created_at, updated_at)
-       values (?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, userId, entry.category ?? "general", entry.label, entry.value, now, now);
-    return db.prepare(`select * from personal_context_entries where id = ?`).get(id) as PersonalContextEntry;
+      `insert into personal_context_entries (id, user_id, category, label, value, source, active, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    ).run(id, userId, entry.category ?? "general", entry.label, entry.value, entry.source ?? "user_entered", now, now);
+    return this.rowToPersonalContext(
+      db.prepare(`select * from personal_context_entries where id = ?`).get(id) as Record<string, unknown>
+    );
   }
 
   updatePersonalContext(
     id: string,
-    changes: { category?: string; label?: string; value?: string }
+    changes: { category?: string; label?: string; value?: string; active?: boolean }
   ): PersonalContextEntry | null {
     const db = getDb();
     const now = new Date().toISOString();
     const existing = db.prepare(`select * from personal_context_entries where id = ?`).get(id) as
-      | PersonalContextEntry
+      | Record<string, unknown>
       | undefined;
     if (!existing) return null;
     db.prepare(
-      `update personal_context_entries set category = ?, label = ?, value = ?, updated_at = ? where id = ?`
+      `update personal_context_entries set category = ?, label = ?, value = ?, active = ?, updated_at = ? where id = ?`
     ).run(
-      changes.category ?? existing.category,
-      changes.label ?? existing.label,
-      changes.value ?? existing.value,
+      changes.category ?? (existing.category as string),
+      changes.label ?? (existing.label as string),
+      changes.value ?? (existing.value as string),
+      changes.active === undefined ? (existing.active as number) : changes.active ? 1 : 0,
       now,
       id
     );
-    return db.prepare(`select * from personal_context_entries where id = ?`).get(id) as PersonalContextEntry;
+    return this.rowToPersonalContext(
+      db.prepare(`select * from personal_context_entries where id = ?`).get(id) as Record<string, unknown>
+    );
   }
 
   deletePersonalContext(id: string): void {

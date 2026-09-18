@@ -29,12 +29,34 @@ export type NotificationOutcome = "sent" | "failed" | "not_configured" | "invali
 
 export type NotificationBehavior = "notify_once" | "repeat_until_done" | "silent";
 
+/**
+ * Suggested category vocabulary for "What NOVA Knows" memory entries
+ * (V9). Not enforced by a DB constraint (see 0009_long_term_memory.sql for
+ * why) — enforced at the application layer instead, and existing/older
+ * free-text categories (e.g. "general") remain valid and readable.
+ */
+export type MemoryCategory =
+  | "preference"
+  | "routine"
+  | "person"
+  | "work"
+  | "reminder_preference"
+  | "payment_preference"
+  | "general_fact"
+  | "general"
+  | (string & {});
+
+/** How a memory entry came to exist — full transparency, shown in the UI. */
+export type MemorySource = "user_entered" | "user_confirmed_from_conversation";
+
 export interface PersonalContextEntry {
   id: string;
   user_id: string;
   category: string;
   label: string;
   value: string;
+  source: MemorySource;
+  active: boolean;
   created_at: string;
   updated_at: string;
 }

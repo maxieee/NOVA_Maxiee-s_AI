@@ -8,6 +8,28 @@ import { Icon } from "@/components/ui/Icon";
 const inputClass =
   "w-full rounded-xl border border-nova-border bg-nova-surface2 px-3 py-2 text-sm text-white outline-none transition-colors focus:border-nova-accent";
 
+const CATEGORY_OPTIONS = [
+  "preference",
+  "routine",
+  "person",
+  "work",
+  "reminder_preference",
+  "payment_preference",
+  "general_fact",
+  "general",
+];
+
+function provenanceLabel(entry: PersonalContextEntry): string {
+  const when = new Date(entry.created_at).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return entry.source === "user_confirmed_from_conversation"
+    ? `You confirmed this from a conversation on ${when}`
+    : `You told me this on ${when}`;
+}
+
 export function PersonalAssistantMemory({ entries }: { entries: PersonalContextEntry[] }) {
   const router = useRouter();
   const [label, setLabel] = useState("");
@@ -16,15 +38,23 @@ export function PersonalAssistantMemory({ entries }: { entries: PersonalContextE
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   async function add() {
     if (!label.trim() || !value.trim()) return;
     setSubmitting(true);
-    await fetch("/api/personal-context", {
+    setError(null);
+    const res = await fetch("/api/personal-context", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label, value, category }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error ?? "Couldn't save that.");
+      setSubmitting(false);
+      return;
+    }
     setLabel("");
     setValue("");
     setCategory("general");
@@ -37,12 +67,27 @@ export function PersonalAssistantMemory({ entries }: { entries: PersonalContextE
     router.refresh();
   }
 
-  async function saveEdit(id: string) {
+  async function deactivate(id: string) {
     await fetch(`/api/personal-context/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: false }),
+    });
+    router.refresh();
+  }
+
+  async function saveEdit(id: string) {
+    setError(null);
+    const res = await fetch(`/api/personal-context/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: editValue }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error ?? "Couldn't save that.");
+      return;
+    }
     setEditingId(null);
     router.refresh();
   }
@@ -79,6 +124,7 @@ export function PersonalAssistantMemory({ entries }: { entries: PersonalContextE
                 ) : (
                   <p className="mt-1 text-sm text-white">{entry.value}</p>
                 )}
+                <p className="mt-1 text-[11px] text-nova-muted/80">{provenanceLabel(entry)}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 {editingId === entry.id ? (
@@ -102,9 +148,16 @@ export function PersonalAssistantMemory({ entries }: { entries: PersonalContextE
                   </button>
                 )}
                 <button
+                  onClick={() => deactivate(entry.id)}
+                  className="rounded-lg p-1.5 text-nova-muted hover:bg-nova-surface hover:text-white"
+                  title="Deactivate (NOVA stops using this, but keeps the history)"
+                >
+                  <Icon name="check" className="h-4 w-4 rotate-45" />
+                </button>
+                <button
                   onClick={() => remove(entry.id)}
                   className="rounded-lg p-1.5 text-nova-urgent hover:bg-nova-surface"
-                  title="Delete"
+                  title="Delete permanently"
                 >
                   <Icon name="bell" className="h-4 w-4" />
                 </button>
@@ -114,13 +167,21 @@ export function PersonalAssistantMemory({ entries }: { entries: PersonalContextE
         </ul>
       )}
 
+      {error && <p className="text-xs text-nova-urgent">{error}</p>}
+
       <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
         <input
           className={inputClass}
+          list="memory-category-options"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           placeholder="Category"
         />
+        <datalist id="memory-category-options">
+          {CATEGORY_OPTIONS.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
         <input
           className={inputClass}
           value={label}

@@ -7,6 +7,7 @@ import type {
   UserPreferencesUpdate,
   ReminderTypeKey,
   PersonalContextEntry,
+  MemorySource,
   NotificationChannel,
   NotificationOutcome,
   PushSubscriptionRecord,
@@ -32,14 +33,14 @@ export interface DataLayer {
   getPreferences(userId: string): UserPreferences;
   updatePreferences(userId: string, update: UserPreferencesUpdate): UserPreferences;
 
-  listPersonalContext(userId: string): PersonalContextEntry[];
+  listPersonalContext(userId: string, options?: { includeInactive?: boolean }): PersonalContextEntry[];
   addPersonalContext(
     userId: string,
-    entry: { category?: string; label: string; value: string }
+    entry: { category?: string; label: string; value: string; source?: MemorySource }
   ): PersonalContextEntry;
   updatePersonalContext(
     id: string,
-    changes: { category?: string; label?: string; value?: string }
+    changes: { category?: string; label?: string; value?: string; active?: boolean }
   ): PersonalContextEntry | null;
   deletePersonalContext(id: string): void;
 

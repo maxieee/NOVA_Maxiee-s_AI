@@ -1,9 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { checkMemorySafety } from "@/lib/memory/safety";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = (await req.json()) as { category?: string; label?: string; value?: string };
+  const body = (await req.json()) as {
+    category?: string;
+    label?: string;
+    value?: string;
+    active?: boolean;
+  };
+  if (body.label !== undefined || body.value !== undefined) {
+    const safety = checkMemorySafety(body.label ?? "", body.value ?? "");
+    if (!safety.ok) {
+      return NextResponse.json({ error: safety.reason }, { status: 422 });
+    }
+  }
   const entry = db.updatePersonalContext(id, body);
   if (!entry) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json({ entry });

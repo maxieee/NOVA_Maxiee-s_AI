@@ -50,6 +50,8 @@ export function ensureSchema(db: Database.Database) {
       category text not null default 'general',
       label text not null,
       value text not null,
+      source text not null default 'user_entered',
+      active integer not null default 1,
       created_at text not null default (datetime('now')),
       updated_at text not null default (datetime('now'))
     );
@@ -333,4 +335,12 @@ function migrateAddColumns(db: Database.Database) {
     "proactive_intelligence_enabled",
     "proactive_intelligence_enabled integer not null default 1"
   );
+
+  // 0009_long_term_memory.sql (V9) — formalize "What NOVA Knows".
+  addColumn(
+    "personal_context_entries",
+    "source",
+    "source text not null default 'user_entered'"
+  );
+  addColumn("personal_context_entries", "active", "active integer not null default 1");
 }
