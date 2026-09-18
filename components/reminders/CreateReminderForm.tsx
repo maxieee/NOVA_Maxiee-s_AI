@@ -2,12 +2,33 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Priority, ReminderInput, ReminderTypeKey, RecurrenceFrequency } from "@/types/reminder";
+import type {
+  Priority,
+  ReminderInput,
+  ReminderTypeKey,
+  RecurrenceFrequency,
+  NotificationChannel,
+  ReminderIntensity,
+} from "@/types/reminder";
 import { TypeSelector } from "./TypeSelector";
 import { todayISO } from "@/lib/utils/date";
 
 const PRIORITIES: Priority[] = ["low", "medium", "high", "urgent"];
 const FREQUENCIES: RecurrenceFrequency[] = ["daily", "weekly", "monthly", "yearly"];
+
+const CHANNEL_OPTIONS: { value: NotificationChannel; label: string }[] = [
+  { value: "push", label: "Push" },
+  { value: "call", label: "Phone Call" },
+  { value: "sms", label: "SMS" },
+  { value: "email", label: "Email" },
+];
+
+const INTENSITY_OPTIONS: { value: ReminderIntensity; label: string; hint: string }[] = [
+  { value: "gentle", label: "Gentle", hint: "A single, quiet nudge" },
+  { value: "normal", label: "Normal", hint: "Repeats a few times if ignored" },
+  { value: "persistent", label: "Persistent", hint: "Repeats often, escalates sooner" },
+  { value: "critical", label: "Critical", hint: "Escalates immediately if configured" },
+];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -21,13 +42,21 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inputClass =
   "w-full rounded-xl border border-nova-border bg-nova-surface2 px-3 py-2.5 text-sm text-white outline-none transition-colors focus:border-nova-primary";
 
-export function CreateReminderForm() {
+export function CreateReminderForm({
+  defaultTime = "09:00",
+  defaultIntensity = "normal",
+  defaultChannels = ["push"],
+}: {
+  defaultTime?: string;
+  defaultIntensity?: ReminderIntensity;
+  defaultChannels?: NotificationChannel[];
+} = {}) {
   const router = useRouter();
   const [types, setTypes] = useState<ReminderTypeKey[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(todayISO());
-  const [time, setTime] = useState("09:00");
+  const [time, setTime] = useState(defaultTime);
   const [priority, setPriority] = useState<Priority>("medium");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +81,15 @@ export function CreateReminderForm() {
 
   const [frequency, setFrequency] = useState<RecurrenceFrequency>("monthly");
   const [interval, setInterval] = useState(1);
+
+  const [channels, setChannels] = useState<NotificationChannel[]>(defaultChannels);
+  const [intensity, setIntensity] = useState<ReminderIntensity>(defaultIntensity);
+
+  function toggleChannel(channel: NotificationChannel) {
+    setChannels((prev) =>
+      prev.includes(channel) ? prev.filter((c) => c !== channel) : [...prev, channel]
+    );
+  }
 
   function has(type: ReminderTypeKey) {
     return types.includes(type);
@@ -78,6 +116,8 @@ export function CreateReminderForm() {
       priority,
       notes: notes || undefined,
       types,
+      channels,
+      intensity,
     };
 
     if (has("payment")) {
@@ -345,6 +385,71 @@ export function CreateReminderForm() {
           </div>
         </section>
       )}
+
+      <section className="nova-card animate-fade-in space-y-4 p-5">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Notification Method</h2>
+          <p className="mt-1 text-xs text-nova-muted">
+            Choose any combination. Channels without a configured provider will clearly say so instead
+            of pretending to deliver.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {CHANNEL_OPTIONS.map((opt) => {
+            const active = channels.includes(opt.value);
+            return (
+              <button
+                type="button"
+                key={opt.value}
+                onClick={() => toggleChannel(opt.value)}
+                aria-pressed={active}
+                className={`rounded-xl border p-3 text-center text-xs font-medium transition-colors duration-150 ${
+                  active
+                    ? "border-nova-accent bg-nova-accent/15 text-white"
+                    : "border-nova-border bg-nova-surface text-nova-muted hover:border-nova-accent/40"
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="nova-card animate-fade-in space-y-4 p-5">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Reminder Intensity</h2>
+          <p className="mt-1 text-xs text-nova-muted">How persistent should NOVA be if this gets ignored?</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {INTENSITY_OPTIONS.map((opt) => {
+            const active = intensity === opt.value;
+            return (
+              <label
+                key={opt.value}
+                className={`flex cursor-pointer flex-col gap-1 rounded-xl border p-3 text-xs transition-colors duration-150 ${
+                  active
+                    ? "border-nova-primary bg-nova-primary/10 text-white"
+                    : "border-nova-border bg-nova-surface text-nova-muted hover:border-nova-primary/40"
+                }`}
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <input
+                    type="radio"
+                    name="intensity"
+                    value={opt.value}
+                    checked={active}
+                    onChange={() => setIntensity(opt.value)}
+                    className="h-3.5 w-3.5 accent-nova-primary"
+                  />
+                  {opt.label}
+                </span>
+                <span className="text-[11px] text-nova-muted">{opt.hint}</span>
+              </label>
+            );
+          })}
+        </div>
+      </section>
 
       {error && (
         <div className="rounded-xl border border-nova-urgent/40 bg-nova-urgent/10 p-3 text-sm text-nova-urgent">

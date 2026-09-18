@@ -17,6 +17,8 @@ function makeReminder(overrides: Partial<Reminder>): Reminder {
     updated_at: "2026-09-01T00:00:00Z",
     completed_at: null,
     types: ["task"],
+    channels: [],
+    intensity: "normal",
     ...overrides,
   };
 }

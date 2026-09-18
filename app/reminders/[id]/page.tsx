@@ -55,6 +55,16 @@ export default async function ReminderDetailPage({
                 <dt className="text-nova-muted">Status</dt>
                 <dd className="capitalize text-white">{reminder.status}</dd>
               </div>
+              <div>
+                <dt className="text-nova-muted">Intensity</dt>
+                <dd className="capitalize text-white">{reminder.intensity}</dd>
+              </div>
+              <div>
+                <dt className="text-nova-muted">Notification channels</dt>
+                <dd className="capitalize text-white">
+                  {reminder.channels.length ? reminder.channels.join(", ") : "None selected"}
+                </dd>
+              </div>
             </dl>
 
             {reminder.notes && (

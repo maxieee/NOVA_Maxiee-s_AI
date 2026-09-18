@@ -3,11 +3,13 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
+import { DONE_CONFIRMATION, SNOOZE_CONFIRMATION } from "@/lib/copy";
 
 export function ReminderActions({ reminderId, compact }: { reminderId: string; compact?: boolean }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showSnooze, setShowSnooze] = useState(false);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
 
   async function call(path: string, body?: object) {
     await fetch(`/api/reminders/${reminderId}/${path}`, {
@@ -15,6 +17,8 @@ export function ReminderActions({ reminderId, compact }: { reminderId: string; c
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
+    setConfirmation(path === "done" ? DONE_CONFIRMATION : SNOOZE_CONFIRMATION);
+    window.setTimeout(() => setConfirmation(null), 2500);
     startTransition(() => router.refresh());
   }
 
@@ -83,6 +87,12 @@ export function ReminderActions({ reminderId, compact }: { reminderId: string; c
             </button>
           ))}
         </div>
+      )}
+
+      {confirmation && (
+        <span className="absolute -top-6 left-0 whitespace-nowrap text-[11px] font-medium text-nova-accent animate-fade-in">
+          {confirmation}
+        </span>
       )}
     </div>
   );

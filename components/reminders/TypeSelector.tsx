@@ -34,13 +34,13 @@ export function TypeSelector({
             aria-pressed={active}
             className={`flex flex-col items-center gap-2 rounded-2xl border p-4 text-center transition-all duration-150 ${
               active
-                ? "border-nova-primary bg-nova-primary/10 shadow-lg shadow-nova-primary/10"
-                : "border-nova-border bg-nova-surface hover:border-nova-primary/40"
+                ? "border-nova-accent bg-nova-accent/15 shadow-lg shadow-nova-accent/10"
+                : "border-nova-border bg-nova-surface hover:border-nova-accent/40"
             }`}
           >
             <span
               className={`flex h-10 w-10 items-center justify-center rounded-xl border ${
-                active ? "border-nova-primary/40 bg-nova-primary/20" : "border-nova-border bg-nova-surface2"
+                active ? "border-nova-accent/40 bg-nova-accent/20" : "border-nova-border bg-nova-surface2"
               }`}
             >
               <Icon name={meta.icon} className={`h-5 w-5 ${meta.color}`} />
@@ -48,7 +48,7 @@ export function TypeSelector({
             <span className="text-xs font-medium text-white">{meta.label}</span>
             <span
               className={`flex h-4 w-4 items-center justify-center rounded-md border ${
-                active ? "border-nova-primary bg-nova-primary" : "border-nova-border"
+                active ? "border-nova-accent bg-nova-accent" : "border-nova-border"
               }`}
             >
               {active && <Icon name="check" className="h-3 w-3 text-white" />}

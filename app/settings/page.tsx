@@ -1,11 +1,15 @@
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { PersonalizationForm } from "@/components/settings/PersonalizationForm";
+import { PersonalAssistantMemory } from "@/components/settings/PersonalAssistantMemory";
+import { isTwilioConfigured } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
 
 export default function SettingsPage() {
   const userId = db.getCurrentUserId();
   const prefs = db.getPreferences(userId);
+  const personalContext = db.listPersonalContext(userId);
 
   return (
     <div>
@@ -42,6 +46,26 @@ export default function SettingsPage() {
               <span className="text-white">{prefs.escalation_enabled ? "Enabled" : "Disabled"}</span>
             </div>
           </div>
+        </div>
+
+        <div className="md:col-span-2">
+          <PersonalizationForm preferences={prefs} />
+        </div>
+
+        <div className="md:col-span-2">
+          <PersonalAssistantMemory entries={personalContext} />
+        </div>
+
+        <div className="nova-card p-5 md:col-span-2">
+          <h3 className="mb-2 text-sm font-semibold text-white">Notification Providers</h3>
+          <p className="text-sm text-nova-muted">
+            Phone calling and SMS are powered by Twilio and are{" "}
+            <span className={isTwilioConfigured() ? "text-nova-good" : "text-nova-primary"}>
+              {isTwilioConfigured() ? "configured" : "not configured — requires provider setup"}
+            </span>
+            . Push and email have no provider wired up in this build; reminders using those channels
+            will show as &quot;not configured&quot; rather than pretending to send.
+          </p>
         </div>
 
         <div className="nova-card p-5 md:col-span-2">

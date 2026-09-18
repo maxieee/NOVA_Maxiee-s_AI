@@ -56,7 +56,12 @@ lib/
   db/                    DataLayer contract + local (SQLite) and supabase
                           implementations, selected by lib/db/index.ts
   scheduling/            Pure functions: urgency, recurrence, repeat/escalation math
-  notifications/         Notification message builders
+  notifications/         Notification message builders, pure escalation
+                          sequencing (escalation.ts), and a provider
+                          abstraction (notifications/providers/) with a
+                          local "not configured" implementation and a
+                          Twilio-backed implementation for calls/SMS
+  copy.ts                Centralized NOVA assistant-voice microcopy
   utils/                 Date/id helpers
 types/                   Shared TypeScript types (Reminder, ReminderInput, …)
 database/
@@ -94,6 +99,15 @@ The schema (`database/migrations/0001_init.sql`) models:
 `database/migrations/0002_seed_types.sql` seeds the fixed 8-type taxonomy
 (Task, Payment, Call, Meeting, Follow-up, Important Date, General Reminder,
 Recurring Reminder).
+
+`database/migrations/0003_personalization.sql` extends `user_preferences`
+with personalization fields (preferred name, what NOVA calls you, default
+reminder time/snooze/behavior, timezone, quiet hours, default intensity,
+repeat/escalate toggles), adds `user_preferred_channels` (a join table for
+preferred notification channels), `personal_context_entries` ("What NOVA
+Knows" — free-form, user-authored personal context), an `intensity` column
+on `reminders`, and `reminder_notification_channels` (a join table so each
+reminder can request any combination of push/sms/email/call).
 
 `lib/db/schema-sqlite.ts` is a SQLite-compatible mirror of the same shape
 (no native arrays/enums, ids/timestamps as text) used by the local data

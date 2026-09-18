@@ -12,11 +12,15 @@ import type {
   ReminderHistoryEntry,
   ReminderTypeKey,
   UserPreferences,
+  UserPreferencesUpdate,
   PaymentDetails,
   CallDetails,
   MeetingDetails,
   FollowUpDetails,
   RecurrenceRule,
+  PersonalContextEntry,
+  NotificationChannel,
+  NotificationOutcome,
 } from "@/types/reminder";
 import { seedIfEmpty } from "./seed-data";
 
@@ -123,6 +127,10 @@ function rowToReminder(db: Database.Database, row: any): Reminder {
     )
     .get(row.id) as { scheduled_for: string } | undefined;
 
+  const channelRows = db
+    .prepare(`select channel from reminder_notification_channels where reminder_id = ?`)
+    .all(row.id) as { channel: NotificationChannel }[];
+
   return {
     id: row.id,
     user_id: row.user_id,
@@ -143,6 +151,8 @@ function rowToReminder(db: Database.Database, row: any): Reminder {
     follow_up: followUp,
     recurrence,
     next_occurrence: nextOcc?.scheduled_for ?? null,
+    channels: channelRows.map((c) => c.channel),
+    intensity: row.intensity ?? "normal",
   };
 }
 
@@ -159,6 +169,9 @@ class LocalDataLayer implements DataLayer {
       .prepare(`select * from user_preferences where user_id = ?`)
       .get(userId) as any;
     const user = db.prepare(`select display_name from users where id = ?`).get(userId) as any;
+    const channelRows = db
+      .prepare(`select channel from user_preferred_channels where user_id = ?`)
+      .all(userId) as { channel: NotificationChannel }[];
     return {
       user_id: userId,
       display_name: user?.display_name ?? "You",
@@ -166,7 +179,161 @@ class LocalDataLayer implements DataLayer {
       repeat_interval_minutes: row?.repeat_interval_minutes ?? 120,
       escalation_enabled: row ? !!row.escalation_enabled : true,
       theme: row?.theme ?? "dark",
+      preferred_name: row?.preferred_name ?? null,
+      nova_should_call_user: row?.nova_should_call_user ?? null,
+      default_reminder_time: row?.default_reminder_time ?? "09:00",
+      default_snooze_minutes: row?.default_snooze_minutes ?? 15,
+      default_notification_behavior: row?.default_notification_behavior ?? "notify_once",
+      timezone: row?.timezone ?? "UTC",
+      quiet_hours_start: row?.quiet_hours_start ?? null,
+      quiet_hours_end: row?.quiet_hours_end ?? null,
+      default_intensity: row?.default_intensity ?? "normal",
+      repeat_ignored_reminders: row ? !!row.repeat_ignored_reminders : true,
+      escalate_urgent_reminders: row ? !!row.escalate_urgent_reminders : true,
+      preferred_channels: channelRows.map((c) => c.channel),
     };
+  }
+
+  updatePreferences(userId: string, update: UserPreferencesUpdate): UserPreferences {
+    const db = getDb();
+    const now = new Date().toISOString();
+
+    const existing = db.prepare(`select user_id from user_preferences where user_id = ?`).get(userId);
+    if (!existing) {
+      db.prepare(
+        `insert into user_preferences (user_id, updated_at) values (?, ?)`
+      ).run(userId, now);
+    }
+
+    const columnMap: Record<string, string> = {
+      reminder_lead_days: "reminder_lead_days",
+      repeat_interval_minutes: "repeat_interval_minutes",
+      escalation_enabled: "escalation_enabled",
+      theme: "theme",
+      preferred_name: "preferred_name",
+      nova_should_call_user: "nova_should_call_user",
+      default_reminder_time: "default_reminder_time",
+      default_snooze_minutes: "default_snooze_minutes",
+      default_notification_behavior: "default_notification_behavior",
+      timezone: "timezone",
+      quiet_hours_start: "quiet_hours_start",
+      quiet_hours_end: "quiet_hours_end",
+      default_intensity: "default_intensity",
+      repeat_ignored_reminders: "repeat_ignored_reminders",
+      escalate_urgent_reminders: "escalate_urgent_reminders",
+    };
+
+    const sets: string[] = [];
+    const params: Record<string, unknown> = { user_id: userId, updated_at: now };
+    for (const [key, column] of Object.entries(columnMap)) {
+      if (!(key in update)) continue;
+      const value = (update as Record<string, unknown>)[key];
+      let stored: unknown = value;
+      if (key === "reminder_lead_days") stored = JSON.stringify(value);
+      if (typeof value === "boolean") stored = value ? 1 : 0;
+      sets.push(`${column} = @${column}`);
+      params[column] = stored;
+    }
+
+    if (sets.length) {
+      db.prepare(
+        `update user_preferences set ${sets.join(", ")}, updated_at = @updated_at where user_id = @user_id`
+      ).run(params);
+    } else {
+      db.prepare(`update user_preferences set updated_at = ? where user_id = ?`).run(now, userId);
+    }
+
+    if (update.preferred_channels) {
+      const tx = db.transaction(() => {
+        db.prepare(`delete from user_preferred_channels where user_id = ?`).run(userId);
+        for (const channel of update.preferred_channels!) {
+          db.prepare(
+            `insert or ignore into user_preferred_channels (user_id, channel) values (?, ?)`
+          ).run(userId, channel);
+        }
+      });
+      tx();
+    }
+
+    return this.getPreferences(userId);
+  }
+
+  listPersonalContext(userId: string): PersonalContextEntry[] {
+    const db = getDb();
+    return db
+      .prepare(`select * from personal_context_entries where user_id = ? order by created_at desc`)
+      .all(userId) as PersonalContextEntry[];
+  }
+
+  addPersonalContext(
+    userId: string,
+    entry: { category?: string; label: string; value: string }
+  ): PersonalContextEntry {
+    const db = getDb();
+    const id = newId();
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into personal_context_entries (id, user_id, category, label, value, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, userId, entry.category ?? "general", entry.label, entry.value, now, now);
+    return db.prepare(`select * from personal_context_entries where id = ?`).get(id) as PersonalContextEntry;
+  }
+
+  updatePersonalContext(
+    id: string,
+    changes: { category?: string; label?: string; value?: string }
+  ): PersonalContextEntry | null {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const existing = db.prepare(`select * from personal_context_entries where id = ?`).get(id) as
+      | PersonalContextEntry
+      | undefined;
+    if (!existing) return null;
+    db.prepare(
+      `update personal_context_entries set category = ?, label = ?, value = ?, updated_at = ? where id = ?`
+    ).run(
+      changes.category ?? existing.category,
+      changes.label ?? existing.label,
+      changes.value ?? existing.value,
+      now,
+      id
+    );
+    return db.prepare(`select * from personal_context_entries where id = ?`).get(id) as PersonalContextEntry;
+  }
+
+  deletePersonalContext(id: string): void {
+    const db = getDb();
+    db.prepare(`delete from personal_context_entries where id = ?`).run(id);
+  }
+
+  logNotification(args: {
+    reminderId: string;
+    occurrenceId: string;
+    channel: NotificationChannel | "in_app";
+    message: string;
+    outcome: NotificationOutcome;
+  }): void {
+    const db = getDb();
+    db.prepare(
+      `insert into notifications (id, reminder_id, occurrence_id, sent_at, channel, message, outcome)
+       values (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      newId(),
+      args.reminderId,
+      args.occurrenceId,
+      new Date().toISOString(),
+      args.channel,
+      args.message,
+      args.outcome
+    );
+    db.prepare(
+      `insert into reminder_history (id, reminder_id, action, detail, created_at) values (?, ?, 'notified', ?, ?)`
+    ).run(
+      newId(),
+      args.reminderId,
+      `${args.channel}: ${args.outcome}`,
+      new Date().toISOString()
+    );
   }
 
   listReminders(userId: string, filter?: ReminderFilter): Reminder[] {
@@ -208,8 +375,8 @@ class LocalDataLayer implements DataLayer {
     const now = new Date().toISOString();
 
     const insertReminder = db.prepare(`
-      insert into reminders (id, user_id, title, description, date, time, priority, notes, status, created_at, updated_at)
-      values (@id, @user_id, @title, @description, @date, @time, @priority, @notes, 'scheduled', @created_at, @updated_at)
+      insert into reminders (id, user_id, title, description, date, time, priority, notes, status, intensity, created_at, updated_at)
+      values (@id, @user_id, @title, @description, @date, @time, @priority, @notes, 'scheduled', @intensity, @created_at, @updated_at)
     `);
 
     const tx = db.transaction(() => {
@@ -222,9 +389,16 @@ class LocalDataLayer implements DataLayer {
         time: input.time ?? null,
         priority: input.priority,
         notes: input.notes ?? null,
+        intensity: input.intensity ?? "normal",
         created_at: now,
         updated_at: now,
       });
+
+      for (const channel of input.channels ?? []) {
+        db.prepare(
+          `insert or ignore into reminder_notification_channels (reminder_id, channel) values (?, ?)`
+        ).run(id, channel);
+      }
 
       for (const typeKey of input.types) {
         const typeRow = db.prepare(`select id from reminder_types where key = ?`).get(typeKey) as

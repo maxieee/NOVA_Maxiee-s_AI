@@ -21,7 +21,42 @@ export function ensureSchema(db: Database.Database) {
       repeat_interval_minutes integer not null default 120,
       escalation_enabled integer not null default 1,
       theme text not null default 'dark',
+      preferred_name text,
+      nova_should_call_user text,
+      default_reminder_time text not null default '09:00',
+      default_snooze_minutes integer not null default 15,
+      default_notification_behavior text not null default 'notify_once',
+      timezone text not null default 'UTC',
+      quiet_hours_start text,
+      quiet_hours_end text,
+      default_intensity text not null default 'normal',
+      repeat_ignored_reminders integer not null default 1,
+      escalate_urgent_reminders integer not null default 1,
       updated_at text not null default (datetime('now'))
+    );
+
+    create table if not exists user_preferred_channels (
+      user_id text not null references users(id) on delete cascade,
+      channel text not null,
+      primary key (user_id, channel)
+    );
+
+    create table if not exists personal_context_entries (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      category text not null default 'general',
+      label text not null,
+      value text not null,
+      created_at text not null default (datetime('now')),
+      updated_at text not null default (datetime('now'))
+    );
+
+    create index if not exists idx_personal_context_user on personal_context_entries(user_id);
+
+    create table if not exists reminder_notification_channels (
+      reminder_id text not null references reminders(id) on delete cascade,
+      channel text not null,
+      primary key (reminder_id, channel)
     );
 
     create table if not exists reminder_types (
@@ -42,6 +77,7 @@ export function ensureSchema(db: Database.Database) {
       priority text not null default 'medium',
       notes text,
       status text not null default 'created',
+      intensity text not null default 'normal',
       created_at text not null default (datetime('now')),
       updated_at text not null default (datetime('now')),
       completed_at text
@@ -117,7 +153,8 @@ export function ensureSchema(db: Database.Database) {
       occurrence_id text not null references reminder_occurrences(id) on delete cascade,
       sent_at text not null default (datetime('now')),
       channel text not null default 'in_app',
-      message text not null
+      message text not null,
+      outcome text not null default 'sent'
     );
 
     create table if not exists reminder_history (
@@ -130,4 +167,46 @@ export function ensureSchema(db: Database.Database) {
 
     create index if not exists idx_history_reminder on reminder_history(reminder_id);
   `);
+
+  migrateAddColumns(db);
+}
+
+/**
+ * Idempotent "add column if missing" pass, so an existing local .sqlite
+ * file created before 0003_personalization.sql picks up the new columns
+ * without needing to delete/reseed the database.
+ */
+function migrateAddColumns(db: Database.Database) {
+  const addColumn = (table: string, column: string, ddl: string) => {
+    const cols = db.prepare(`pragma table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`alter table ${table} add column ${ddl}`);
+    }
+  };
+
+  addColumn("user_preferences", "preferred_name", "preferred_name text");
+  addColumn("user_preferences", "nova_should_call_user", "nova_should_call_user text");
+  addColumn("user_preferences", "default_reminder_time", "default_reminder_time text not null default '09:00'");
+  addColumn("user_preferences", "default_snooze_minutes", "default_snooze_minutes integer not null default 15");
+  addColumn(
+    "user_preferences",
+    "default_notification_behavior",
+    "default_notification_behavior text not null default 'notify_once'"
+  );
+  addColumn("user_preferences", "timezone", "timezone text not null default 'UTC'");
+  addColumn("user_preferences", "quiet_hours_start", "quiet_hours_start text");
+  addColumn("user_preferences", "quiet_hours_end", "quiet_hours_end text");
+  addColumn("user_preferences", "default_intensity", "default_intensity text not null default 'normal'");
+  addColumn(
+    "user_preferences",
+    "repeat_ignored_reminders",
+    "repeat_ignored_reminders integer not null default 1"
+  );
+  addColumn(
+    "user_preferences",
+    "escalate_urgent_reminders",
+    "escalate_urgent_reminders integer not null default 1"
+  );
+  addColumn("reminders", "intensity", "intensity text not null default 'normal'");
+  addColumn("notifications", "outcome", "outcome text not null default 'sent'");
 }

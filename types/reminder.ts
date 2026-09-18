@@ -21,6 +21,24 @@ export interface ReminderType {
 
 export type Priority = "low" | "medium" | "high" | "urgent";
 
+export type NotificationChannel = "push" | "sms" | "email" | "call";
+
+export type ReminderIntensity = "gentle" | "normal" | "persistent" | "critical";
+
+export type NotificationOutcome = "sent" | "failed" | "not_configured";
+
+export type NotificationBehavior = "notify_once" | "repeat_until_done" | "silent";
+
+export interface PersonalContextEntry {
+  id: string;
+  user_id: string;
+  category: string;
+  label: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type ReminderStatus =
   | "created"
   | "scheduled"
@@ -140,6 +158,8 @@ export interface Reminder {
   follow_up?: FollowUpDetails | null;
   recurrence?: RecurrenceRule | null;
   next_occurrence?: string | null; // ISO datetime of next scheduled fire
+  channels: NotificationChannel[];
+  intensity: ReminderIntensity;
 }
 
 export interface ReminderInput {
@@ -155,6 +175,8 @@ export interface ReminderInput {
   meeting?: MeetingDetails;
   follow_up?: FollowUpDetails;
   recurrence?: Partial<RecurrenceRule>;
+  channels?: NotificationChannel[];
+  intensity?: ReminderIntensity;
 }
 
 export interface UserPreferences {
@@ -164,7 +186,25 @@ export interface UserPreferences {
   repeat_interval_minutes: number; // e.g. 120 = every 2 hours
   escalation_enabled: boolean;
   theme: "dark" | "light" | "system";
+
+  // Personalization (all user-entered, persisted via the DB, never hardcoded)
+  preferred_name: string | null;
+  nova_should_call_user: string | null;
+  default_reminder_time: string; // HH:mm
+  default_snooze_minutes: number;
+  default_notification_behavior: NotificationBehavior;
+  timezone: string;
+  quiet_hours_start: string | null; // HH:mm
+  quiet_hours_end: string | null; // HH:mm
+  default_intensity: ReminderIntensity;
+  repeat_ignored_reminders: boolean;
+  escalate_urgent_reminders: boolean;
+  preferred_channels: NotificationChannel[];
 }
+
+export type UserPreferencesUpdate = Partial<
+  Omit<UserPreferences, "user_id" | "display_name">
+>;
 
 export type Urgency = "overdue" | "urgent" | "due_today" | "upcoming" | "completed";
 

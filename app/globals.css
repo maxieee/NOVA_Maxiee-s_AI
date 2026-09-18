@@ -8,8 +8,8 @@
 
 html,
 body {
-  background-color: #0b0d12;
-  color: #eef0f4;
+  background-color: #080d17;
+  color: #f5f7fa;
 }
 
 * {
@@ -21,7 +21,7 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #232833;
+  background: #243149;
   border-radius: 999px;
 }
 
@@ -47,4 +47,9 @@ body {
 
 .nova-chip-active {
   @apply border-transparent bg-gradient-to-r from-nova-primary to-nova-primary2 text-white;
+}
+
+/* Completed items read as visually quieter: desaturated, lower contrast. */
+.nova-completed {
+  @apply border-nova-border/60 bg-nova-surface/50 opacity-70 grayscale-[0.35];
 }

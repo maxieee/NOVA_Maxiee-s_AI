@@ -4,7 +4,11 @@ import type {
   ReminderOccurrence,
   ReminderHistoryEntry,
   UserPreferences,
+  UserPreferencesUpdate,
   ReminderTypeKey,
+  PersonalContextEntry,
+  NotificationChannel,
+  NotificationOutcome,
 } from "@/types/reminder";
 
 /**
@@ -19,6 +23,26 @@ import type {
 export interface DataLayer {
   getCurrentUserId(): string;
   getPreferences(userId: string): UserPreferences;
+  updatePreferences(userId: string, update: UserPreferencesUpdate): UserPreferences;
+
+  listPersonalContext(userId: string): PersonalContextEntry[];
+  addPersonalContext(
+    userId: string,
+    entry: { category?: string; label: string; value: string }
+  ): PersonalContextEntry;
+  updatePersonalContext(
+    id: string,
+    changes: { category?: string; label?: string; value?: string }
+  ): PersonalContextEntry | null;
+  deletePersonalContext(id: string): void;
+
+  logNotification(args: {
+    reminderId: string;
+    occurrenceId: string;
+    channel: NotificationChannel | "in_app";
+    message: string;
+    outcome: NotificationOutcome;
+  }): void;
 
   listReminders(userId: string, filter?: ReminderFilter): Reminder[];
   getReminder(id: string): Reminder | null;

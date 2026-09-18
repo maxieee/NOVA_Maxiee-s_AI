@@ -8,18 +8,21 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // NOVA palette: dark navy/red/blue premium personal-assistant theme.
         nova: {
-          bg: "#0b0d12",
-          surface: "#12151c",
-          surface2: "#181c25",
-          border: "#232833",
-          primary: "#6366f1",
-          primary2: "#8b5cf6",
-          accent: "#22d3ee",
-          urgent: "#ef4444",
-          warn: "#f59e0b",
-          good: "#22c55e",
-          muted: "#8b93a3",
+          bg: "#080D17", // primary background
+          surface: "#0D1626", // secondary background
+          surface2: "#132038", // slightly lifted surface, derived from secondary bg
+          border: "#243149", // borders
+          primary: "#E3262E", // red accent — sparingly, urgent/CTA/selected
+          primary2: "#B81E25", // deeper red for gradients
+          accent: "#1E5AA8", // blue accent — nav/secondary actions/info
+          accent2: "#2E71C9", // lighter blue for gradients
+          urgent: "#E3262E",
+          warn: "#1E5AA8",
+          good: "#3E8E63", // muted/desaturated green for quiet "completed" state
+          muted: "#9BA8BC", // secondary text
+          text: "#F5F7FA", // primary text
         },
       },
       fontFamily: {
