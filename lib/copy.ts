@@ -35,3 +35,14 @@ export const SNOOZE_CONFIRMATION = "Snoozed — I'll bring it back up.";
 export function notConfigured(channel: string): string {
   return `${channel} is not configured. Requires provider setup.`;
 }
+
+/** V6: unified summary line when both reminders and payments need attention today. */
+export function unifiedTodayLine(reminderCount: number, paymentCount: number): string | null {
+  if (reminderCount > 0 && paymentCount > 0) {
+    return `That includes ${paymentCount} payment${paymentCount === 1 ? "" : "s"} alongside your reminders.`;
+  }
+  return null;
+}
+
+export const PAYMENTS_DUE_LABEL = "Payments Due";
+
