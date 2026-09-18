@@ -22,6 +22,10 @@ import type {
   NotificationChannel,
   NotificationOutcome,
   PushSubscriptionRecord,
+  PaymentAccount,
+  PaymentAccountInput,
+  PaymentAccountUpdate,
+  PaymentCycle,
 } from "@/types/reminder";
 import { seedIfEmpty } from "./seed-data";
 
@@ -733,6 +737,241 @@ class LocalDataLayer implements DataLayer {
        set failure_count = failure_count + 1, last_failure_at = ?, updated_at = ?
        where endpoint = ?`
     ).run(new Date().toISOString(), new Date().toISOString(), endpoint);
+  }
+
+  // --- V5: Payment Intelligence --------------------------------------
+
+  private rowToPaymentAccount(row: any): PaymentAccount {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      name: row.name,
+      payment_type: row.payment_type,
+      issuer: row.issuer,
+      masked_identifier: row.masked_identifier,
+      active: !!row.active,
+      statement_date_rule: row.statement_date_rule,
+      due_date_rule: row.due_date_rule,
+      fixed_due_day: row.fixed_due_day,
+      due_days_after_statement: row.due_days_after_statement,
+      default_amount: row.default_amount,
+      minimum_amount: row.minimum_amount,
+      autopay_enabled: !!row.autopay_enabled,
+      reminder_enabled: !!row.reminder_enabled,
+      escalation_enabled: !!row.escalation_enabled,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  private rowToPaymentCycle(row: any): PaymentCycle {
+    return {
+      id: row.id,
+      payment_account_id: row.payment_account_id,
+      cycle_period: row.cycle_period,
+      statement_date: row.statement_date,
+      due_date: row.due_date,
+      amount: row.amount,
+      minimum_amount: row.minimum_amount,
+      status: row.status,
+      paid_at: row.paid_at,
+      reminder_id: row.reminder_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  listPaymentAccounts(userId: string): PaymentAccount[] {
+    const db = getDb();
+    return (
+      db.prepare(`select * from payment_accounts where user_id = ? order by created_at desc`).all(userId) as any[]
+    ).map((r) => this.rowToPaymentAccount(r));
+  }
+
+  getPaymentAccount(id: string): PaymentAccount | null {
+    const db = getDb();
+    const row = db.prepare(`select * from payment_accounts where id = ?`).get(id) as any;
+    return row ? this.rowToPaymentAccount(row) : null;
+  }
+
+  createPaymentAccount(userId: string, input: PaymentAccountInput): PaymentAccount {
+    const db = getDb();
+    const id = newId();
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into payment_accounts (
+        id, user_id, name, payment_type, issuer, masked_identifier, active,
+        statement_date_rule, due_date_rule, fixed_due_day, due_days_after_statement,
+        default_amount, minimum_amount, autopay_enabled, reminder_enabled, escalation_enabled,
+        created_at, updated_at
+      ) values (@id, @user_id, @name, @payment_type, @issuer, @masked_identifier, @active,
+        @statement_date_rule, @due_date_rule, @fixed_due_day, @due_days_after_statement,
+        @default_amount, @minimum_amount, @autopay_enabled, @reminder_enabled, @escalation_enabled,
+        @created_at, @updated_at)`
+    ).run({
+      id,
+      user_id: userId,
+      name: input.name,
+      payment_type: input.payment_type,
+      issuer: input.issuer ?? null,
+      masked_identifier: input.masked_identifier ?? null,
+      active: input.active ? 1 : 0,
+      statement_date_rule: input.statement_date_rule,
+      due_date_rule: input.due_date_rule,
+      fixed_due_day: input.fixed_due_day ?? null,
+      due_days_after_statement: input.due_days_after_statement ?? null,
+      default_amount: input.default_amount,
+      minimum_amount: input.minimum_amount ?? null,
+      autopay_enabled: input.autopay_enabled ? 1 : 0,
+      reminder_enabled: input.reminder_enabled ? 1 : 0,
+      escalation_enabled: input.escalation_enabled ? 1 : 0,
+      created_at: now,
+      updated_at: now,
+    });
+    return this.getPaymentAccount(id)!;
+  }
+
+  updatePaymentAccount(id: string, update: PaymentAccountUpdate): PaymentAccount | null {
+    const db = getDb();
+    const existing = this.getPaymentAccount(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+
+    const columnMap: Record<string, string> = {
+      name: "name",
+      payment_type: "payment_type",
+      issuer: "issuer",
+      masked_identifier: "masked_identifier",
+      active: "active",
+      statement_date_rule: "statement_date_rule",
+      due_date_rule: "due_date_rule",
+      fixed_due_day: "fixed_due_day",
+      due_days_after_statement: "due_days_after_statement",
+      default_amount: "default_amount",
+      minimum_amount: "minimum_amount",
+      autopay_enabled: "autopay_enabled",
+      reminder_enabled: "reminder_enabled",
+      escalation_enabled: "escalation_enabled",
+    };
+
+    const sets: string[] = [];
+    const params: Record<string, unknown> = { id, updated_at: now };
+    for (const [key, column] of Object.entries(columnMap)) {
+      if (!(key in update)) continue;
+      let value = (update as Record<string, unknown>)[key];
+      if (typeof value === "boolean") value = value ? 1 : 0;
+      sets.push(`${column} = @${column}`);
+      params[column] = value;
+    }
+    if (sets.length) {
+      db.prepare(`update payment_accounts set ${sets.join(", ")}, updated_at = @updated_at where id = @id`).run(
+        params
+      );
+    }
+    return this.getPaymentAccount(id);
+  }
+
+  setPaymentAccountActive(id: string, active: boolean): PaymentAccount | null {
+    const db = getDb();
+    db.prepare(`update payment_accounts set active = ?, updated_at = ? where id = ?`).run(
+      active ? 1 : 0,
+      new Date().toISOString(),
+      id
+    );
+    return this.getPaymentAccount(id);
+  }
+
+  listPaymentCycles(accountId: string): PaymentCycle[] {
+    const db = getDb();
+    return (
+      db
+        .prepare(`select * from payment_cycles where payment_account_id = ? order by due_date desc`)
+        .all(accountId) as any[]
+    ).map((r) => this.rowToPaymentCycle(r));
+  }
+
+  getPaymentCycle(id: string): PaymentCycle | null {
+    const db = getDb();
+    const row = db.prepare(`select * from payment_cycles where id = ?`).get(id) as any;
+    return row ? this.rowToPaymentCycle(row) : null;
+  }
+
+  getPaymentCycleByPeriod(accountId: string, cyclePeriod: string): PaymentCycle | null {
+    const db = getDb();
+    const row = db
+      .prepare(`select * from payment_cycles where payment_account_id = ? and cycle_period = ?`)
+      .get(accountId, cyclePeriod) as any;
+    return row ? this.rowToPaymentCycle(row) : null;
+  }
+
+  createPaymentCycle(
+    accountId: string,
+    fields: { cyclePeriod: string; statementDate: string; dueDate: string; amount: number; minimumAmount: number | null }
+  ): PaymentCycle {
+    const db = getDb();
+    // Idempotency: unique(payment_account_id, cycle_period) — "insert or
+    // ignore" then re-read, so calling this twice for the same period never
+    // creates a duplicate row and always returns the (single) real cycle.
+    const id = newId();
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert or ignore into payment_cycles
+        (id, payment_account_id, cycle_period, statement_date, due_date, amount, minimum_amount, status, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?)`
+    ).run(
+      id,
+      accountId,
+      fields.cyclePeriod,
+      fields.statementDate,
+      fields.dueDate,
+      fields.amount,
+      fields.minimumAmount,
+      now,
+      now
+    );
+    return this.getPaymentCycleByPeriod(accountId, fields.cyclePeriod)!;
+  }
+
+  linkPaymentCycleReminder(cycleId: string, reminderId: string): void {
+    const db = getDb();
+    db.prepare(`update payment_cycles set reminder_id = ?, updated_at = ? where id = ?`).run(
+      reminderId,
+      new Date().toISOString(),
+      cycleId
+    );
+  }
+
+  updatePaymentCycleStatus(cycleId: string, status: PaymentCycle["status"]): void {
+    const db = getDb();
+    db.prepare(`update payment_cycles set status = ?, updated_at = ? where id = ? and status != 'paid'`).run(
+      status,
+      new Date().toISOString(),
+      cycleId
+    );
+  }
+
+  markPaymentCyclePaid(cycleId: string): PaymentCycle | null {
+    const db = getDb();
+    const existing = this.getPaymentCycle(cycleId);
+    if (!existing) return null;
+    // Idempotent: calling this twice on an already-paid cycle is a no-op.
+    if (existing.status === "paid") return existing;
+    const now = new Date().toISOString();
+    const tx = db.transaction(() => {
+      db.prepare(`update payment_cycles set status = 'paid', paid_at = ?, updated_at = ? where id = ?`).run(
+        now,
+        now,
+        cycleId
+      );
+      // Reuse the EXISTING completeReminder path so the linked reminder's
+      // occurrence follow_up_state becomes "completed" and all future
+      // notifications stop — no new completion mechanism.
+      if (existing.reminder_id) {
+        this.completeReminder(existing.reminder_id);
+      }
+    });
+    tx();
+    return this.getPaymentCycle(cycleId);
   }
 }
 

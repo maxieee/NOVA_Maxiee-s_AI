@@ -10,6 +10,10 @@ import type {
   NotificationChannel,
   NotificationOutcome,
   PushSubscriptionRecord,
+  PaymentAccount,
+  PaymentAccountInput,
+  PaymentAccountUpdate,
+  PaymentCycle,
 } from "@/types/reminder";
 
 /**
@@ -88,6 +92,24 @@ export interface DataLayer {
   listActivePushSubscriptions(userId: string): PushSubscriptionRecord[];
   deactivatePushSubscription(endpoint: string): void;
   recordPushFailure(endpoint: string): void;
+
+  // V5: Payment Intelligence
+  listPaymentAccounts(userId: string): PaymentAccount[];
+  getPaymentAccount(id: string): PaymentAccount | null;
+  createPaymentAccount(userId: string, input: PaymentAccountInput): PaymentAccount;
+  updatePaymentAccount(id: string, update: PaymentAccountUpdate): PaymentAccount | null;
+  setPaymentAccountActive(id: string, active: boolean): PaymentAccount | null;
+
+  listPaymentCycles(accountId: string): PaymentCycle[];
+  getPaymentCycle(id: string): PaymentCycle | null;
+  getPaymentCycleByPeriod(accountId: string, cyclePeriod: string): PaymentCycle | null;
+  createPaymentCycle(
+    accountId: string,
+    fields: { cyclePeriod: string; statementDate: string; dueDate: string; amount: number; minimumAmount: number | null }
+  ): PaymentCycle;
+  linkPaymentCycleReminder(cycleId: string, reminderId: string): void;
+  updatePaymentCycleStatus(cycleId: string, status: PaymentCycle["status"]): void;
+  markPaymentCyclePaid(cycleId: string): PaymentCycle | null;
 }
 
 export interface ReminderFilter {

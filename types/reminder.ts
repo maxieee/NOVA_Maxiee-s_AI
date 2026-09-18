@@ -254,3 +254,56 @@ export interface DashboardCounts {
   overdue: number;
   completed: number;
 }
+
+// --- V5: Payment Intelligence ---------------------------------------------
+// A payment_account is the recurring OBLIGATION (a card, an EMI, a bill, a
+// subscription). Each billing period it produces a payment_cycle, and each
+// cycle drives one ordinary NOVA reminder (type "payment", with its
+// existing payment_details row) so the existing reminder/follow-up/
+// escalation engine handles it unmodified — see lib/scheduling/paymentCycles.ts.
+
+export type PaymentAccountType = "CREDIT_CARD" | "EMI" | "BILL" | "SUBSCRIPTION" | "OTHER";
+
+export type DueDateRule = "fixed_day" | "days_after_statement";
+
+export interface PaymentAccount {
+  id: string;
+  user_id: string;
+  name: string;
+  payment_type: PaymentAccountType;
+  issuer: string | null;
+  /** Masked identifier only, e.g. "Visa •••• 1234" — never a raw account/card number. */
+  masked_identifier: string | null;
+  active: boolean;
+  statement_date_rule: number; // day-of-month the statement is generated, 1-31 (clamped to month length)
+  due_date_rule: DueDateRule;
+  fixed_due_day: number | null; // used when due_date_rule = "fixed_day"
+  due_days_after_statement: number | null; // used when due_date_rule = "days_after_statement"
+  default_amount: number;
+  minimum_amount: number | null;
+  autopay_enabled: boolean;
+  reminder_enabled: boolean;
+  escalation_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PaymentAccountInput = Omit<PaymentAccount, "id" | "user_id" | "created_at" | "updated_at">;
+export type PaymentAccountUpdate = Partial<PaymentAccountInput>;
+
+export type PaymentCycleStatus = "upcoming" | "due_soon" | "due_today" | "overdue" | "paid";
+
+export interface PaymentCycle {
+  id: string;
+  payment_account_id: string;
+  cycle_period: string; // e.g. "2026-01"
+  statement_date: string; // ISO date
+  due_date: string; // ISO date
+  amount: number;
+  minimum_amount: number | null;
+  status: PaymentCycleStatus;
+  paid_at: string | null;
+  reminder_id: string | null;
+  created_at: string;
+  updated_at: string;
+}

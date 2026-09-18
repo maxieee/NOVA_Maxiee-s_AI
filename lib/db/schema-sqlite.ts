@@ -193,6 +193,50 @@ export function ensureSchema(db: Database.Database) {
     );
 
     create index if not exists idx_push_subscriptions_user on push_subscriptions(user_id);
+
+    -- 0007_payment_intelligence.sql — recurring-obligation model layered on
+    -- top of payment_details, additive only.
+    create table if not exists payment_accounts (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      name text not null,
+      payment_type text not null default 'OTHER',
+      issuer text,
+      masked_identifier text,
+      active integer not null default 1,
+      statement_date_rule integer not null default 1,
+      due_date_rule text not null default 'fixed_day',
+      fixed_due_day integer,
+      due_days_after_statement integer,
+      default_amount real not null default 0,
+      minimum_amount real,
+      autopay_enabled integer not null default 0,
+      reminder_enabled integer not null default 1,
+      escalation_enabled integer not null default 1,
+      created_at text not null default (datetime('now')),
+      updated_at text not null default (datetime('now'))
+    );
+
+    create index if not exists idx_payment_accounts_user on payment_accounts(user_id);
+
+    create table if not exists payment_cycles (
+      id text primary key,
+      payment_account_id text not null references payment_accounts(id) on delete cascade,
+      cycle_period text not null,
+      statement_date text not null,
+      due_date text not null,
+      amount real not null default 0,
+      minimum_amount real,
+      status text not null default 'upcoming',
+      paid_at text,
+      reminder_id text references reminders(id) on delete set null,
+      created_at text not null default (datetime('now')),
+      updated_at text not null default (datetime('now')),
+      unique (payment_account_id, cycle_period)
+    );
+
+    create index if not exists idx_payment_cycles_account on payment_cycles(payment_account_id);
+    create index if not exists idx_payment_cycles_reminder on payment_cycles(reminder_id);
   `);
 
   migrateAddColumns(db);

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
 import { scanAndProcessDueReminders } from "@/lib/scheduling/dueScan";
+import { generateMissingCycles, refreshCycleStatuses } from "@/lib/scheduling/paymentCycles";
+import { generateMissingReminders } from "@/lib/scheduling/paymentReminders";
 
 /**
  * Server-side "source of truth" cron endpoint. Meant to be invoked by a
@@ -18,6 +21,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
+
+  // Payment Intelligence (V5): before/alongside the existing due-reminder
+  // scan — generate any missing cycles/reminders and refresh derived
+  // statuses, all idempotent (see lib/scheduling/paymentCycles.ts and
+  // paymentReminders.ts), then continue into the unchanged existing scan.
+  const userId = db.getCurrentUserId();
+  const preferences = db.getPreferences(userId);
+  generateMissingCycles(userId);
+  generateMissingReminders(userId, preferences.preferred_channels, preferences.default_intensity);
+  refreshCycleStatuses(userId);
 
   const results = await scanAndProcessDueReminders();
   return NextResponse.json({ processed: results.length, results });

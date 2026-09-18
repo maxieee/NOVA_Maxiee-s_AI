@@ -289,3 +289,120 @@ validation this build doesn't need yet.
   `lib/db` on the server (fast, no client-side fetch waterfall for initial
   render); only mutations (Done/Snooze/Remind Again, Create Reminder) go
   through `/api/reminders/*` routes, called from small client components.
+
+## Payment Intelligence (V5)
+
+A higher-level **recurring-obligation** model layered on top of the
+existing per-reminder `payment_details` table, not a replacement for it.
+Ad-hoc "payment" reminders created directly (not through a payment account)
+keep working exactly as before.
+
+### Architecture
+
+- `payment_accounts` — the obligation itself (a card, EMI, bill,
+  subscription): name, type, masked identifier (never a raw card/account
+  number), statement/due-date rules, default amount, autopay/reminder/
+  escalation toggles.
+- `payment_cycles` — one row per billing period for an account
+  (`unique(payment_account_id, cycle_period)`), carrying its own
+  statement/due date, amount, a derived `status`
+  (upcoming/due_soon/due_today/overdue/paid), and `reminder_id` linking to
+  the ordinary NOVA reminder that actually notifies for it.
+- Each cycle's reminder is a normal reminder with `type: "payment"` and its
+  own `payment_details` row — the **existing** reminder / follow-up /
+  escalation engine (`decideFollowUp`, `dueScan`, the provider abstraction)
+  handles it completely unmodified. No second reminder/notification engine
+  was added.
+
+### Due-date engine
+
+`lib/scheduling/paymentDates.ts` — pure, unit-tested date math (no string
+slicing):
+
+- `computeNextStatementDate(statementDateRule, from)` — next statement date
+  for a day-of-month rule.
+- `computeDueDateForStatement(statementDate, rule, fixedDueDay, daysAfter)`
+  — due date either on a fixed day-of-month or N days after the statement.
+- **Clamping rule**: a configured day (e.g. "31") that doesn't exist in the
+  target month clamps **down** to that month's last real day (Feb 28/29,
+  30 for April, etc.) — it never rolls into the next month.
+
+### Cycle & reminder generation
+
+- `lib/scheduling/paymentCycles.ts` — `ensureUpcomingCycle` /
+  `generateMissingCycles` (idempotent: checks for an existing cycle at the
+  computed period, backed by the DB's unique constraint) and
+  `derivePaymentCycleStatus` / `refreshCycleStatuses` (pure derivation of
+  `payment_cycles.status` from due_date vs now — kept deliberately separate
+  from `reminder_occurrences.follow_up_state`, which is the notification
+  state machine).
+- `lib/scheduling/paymentReminders.ts` — `generateReminderForCycle` /
+  `generateMissingReminders`: creates the linked reminder once per cycle
+  (idempotent via `payment_cycles.reminder_id`), with occurrences at a
+  data-driven lead-time schedule (`lib/scheduling/paymentReminderConfig.ts`:
+  default 7/3/1 days before + due date), reusing the existing
+  `computeLeadTimeSchedule` helper. Channels/intensity come from the
+  account's `reminder_enabled`/`escalation_enabled` flags and the user's
+  personalization defaults — never a payment-specific escalation rule.
+
+### Idempotency
+
+Every generation function checks for an existing row before inserting, and
+the DB backs it with a `unique(payment_account_id, cycle_period)`
+constraint — running the cron any number of times never creates duplicate
+cycles, reminders, or notifications. Verified explicitly by
+`tests/payment-integration.test.ts` (10 repeated cron-path runs across
+multiple accounts) and `scripts/verify-payment-lifecycle.ts`.
+
+### Actions
+
+- **Mark Paid** (`POST /api/payments/:cycleId/paid`) — idempotent (a repeat
+  call on an already-paid cycle is a no-op), and reuses the **existing**
+  `db.completeReminder` path so the linked occurrence's `follow_up_state`
+  becomes `completed` and all future notifications stop.
+- **Remind Again / Snooze** (`POST /api/payments/:cycleId/snooze`) —
+  delegates entirely to the existing `db.snoozeReminder`.
+- **Disable/Enable account** (`DELETE` / `PATCH { active }` on
+  `/api/payments/:accountId`) — stops future cycle/reminder generation
+  without deleting any history.
+
+### APIs
+
+`GET/POST /api/payments`, `GET/PATCH/DELETE /api/payments/[id]`,
+`POST /api/payments/[id]/paid`, `POST /api/payments/[id]/snooze` — `PATCH`
+never accepts a raw `status` transition; Mark Paid is always the dedicated
+action endpoint.
+
+### Cron integration
+
+`POST /api/cron/process-due-reminders` (the one existing cron endpoint —
+no second one was added) now, before the unchanged existing scan:
+1. generates any missing payment cycles for active accounts,
+2. generates any missing reminders for cycles that lack one,
+3. refreshes `payment_cycles.status` from due_date vs now,
+4. then runs the existing `scanAndProcessDueReminders()` unchanged.
+
+### Env vars
+
+None added — Payment Intelligence reuses every existing env var
+(`CRON_SECRET`, Twilio/VAPID credentials) with no new configuration surface.
+
+### Testing
+
+```bash
+npx vitest run tests/payment-dates.test.ts
+npx vitest run tests/payment-cycles.test.ts
+npx vitest run tests/payment-integration.test.ts
+npx tsx scripts/verify-payment-lifecycle.ts   # scratch-DB, real end-to-end proof
+```
+
+### Known limitation
+
+The escalation leg of `scripts/verify-payment-lifecycle.ts` demonstrates a
+second honest `sent` follow-up but did not reach `escalation_level > 0`
+within the script's short wait windows in the run captured for this
+report — the underlying engine and its threshold logic are unchanged and
+already covered by `tests/escalation.test.ts` /
+`tests/followup-engine.test.ts` (which do assert escalation), so this is a
+timing artifact of the demo script's sleep durations, not a gap in the
+production logic.
