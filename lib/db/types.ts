@@ -45,6 +45,7 @@ export interface DataLayer {
     outcome: NotificationOutcome;
     attemptNumber?: number;
     escalationLevel?: number;
+    providerRef?: string | null;
   }): void;
   listNotifications(reminderId: string): import("@/types/reminder").NotificationLogEntry[];
 

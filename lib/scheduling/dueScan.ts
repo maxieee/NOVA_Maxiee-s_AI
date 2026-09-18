@@ -4,6 +4,7 @@ import { FOLLOW_UP_INTERVAL_MINUTES } from "@/lib/notifications/followUpConfig";
 import { getNotificationProvider, isTwilioConfigured, isWebPushConfigured } from "@/lib/notifications/providers";
 import { buildPushPayload } from "@/lib/notifications/payload";
 import { buildNotificationMessage } from "@/lib/notifications/messages";
+import { buildCallMessage } from "@/lib/notifications/callScript";
 import type { FollowUpState, NotificationChannel, Reminder } from "@/types/reminder";
 
 export interface DueScanResult {
@@ -88,7 +89,7 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
     // decision.type === "send" — actually dispatch. A "send" only counts
     // as having happened, and only advances state, when the provider
     // genuinely reports success — never on "not_configured"/"failed".
-    const outcome = await dispatch(provider, decision.channel, reminder);
+    const outcome = await dispatch(provider, decision.channel, reminder, preferences.phone_number, now);
     const attemptNumber = occ.notification_attempt_count + 1;
     const escalationLevel = decision.escalated ? occ.escalation_level + 1 : occ.escalation_level;
 
@@ -132,6 +133,7 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
       outcome: outcome.outcome,
       attemptNumber,
       escalationLevel,
+      providerRef: outcome.providerRef ?? null,
     });
 
     results.push({
@@ -149,7 +151,9 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
 async function dispatch(
   provider: ReturnType<typeof getNotificationProvider>,
   channel: NotificationChannel,
-  reminder: Reminder
+  reminder: Reminder,
+  escalationPhoneNumber: string | null,
+  now: Date
 ) {
   const message = buildNotificationMessage(reminder);
   switch (channel) {
@@ -158,9 +162,15 @@ async function dispatch(
       return provider.sendPush(reminder.user_id, JSON.stringify(payload));
     }
     case "sms":
-      return provider.sendSms(reminder.call?.phone_number ?? "", message);
+      // The destination for sms/call escalation is the person's OWN
+      // number, configured once in Settings (user_preferences.phone_number)
+      // — deliberately not reminder.call?.phone_number, which is the
+      // contact info for an unrelated "Call" reminder TYPE (e.g. "call the
+      // dentist"). An unset number honestly fails validation downstream
+      // rather than silently going nowhere.
+      return provider.sendSms(escalationPhoneNumber ?? "", message);
     case "call":
-      return provider.placeCall(reminder.call?.phone_number ?? "", message);
+      return provider.placeCall(escalationPhoneNumber ?? "", buildCallMessage(reminder, now));
     case "email":
     default:
       return provider.sendEmail(reminder.user_id, "NOVA reminder", message);

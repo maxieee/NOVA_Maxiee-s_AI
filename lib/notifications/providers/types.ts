@@ -5,11 +5,13 @@
  * configured provider returns "not_configured", never "sent". Nothing in
  * this codebase is allowed to fabricate delivery success.
  */
-export type ProviderOutcome = "sent" | "failed" | "not_configured";
+export type ProviderOutcome = "sent" | "failed" | "not_configured" | "invalid_number";
 
 export interface ProviderResult {
   outcome: ProviderOutcome;
   detail: string;
+  /** Provider-side reference for a genuinely sent notification (e.g. a Twilio Call SID). Never a credential. */
+  providerRef?: string;
 }
 
 export interface NotificationProvider {

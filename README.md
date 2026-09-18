@@ -199,6 +199,59 @@ unacknowledged occurrences, runs them through the escalation engine
   `/api/cron/process-due-reminders` every 5 minutes; Vercel Cron sends
   `Authorization: Bearer <CRON_SECRET>`, which the route also accepts.
 
+## Phone-call escalation (Twilio)
+
+For `critical`/`persistent` reminders that request the `call` channel, NOVA
+can escalate to a real voice call via Twilio (`lib/notifications/providers/twilio.ts`),
+gated by the same honest-outcome/idempotency rules as push and SMS — a call
+never fires just because a reminder is "critical"; it fires only when the
+reminder explicitly requested `call`, Twilio is configured, the escalation
+engine's decision genuinely selects `call`, and the occurrence hasn't
+already been notified for this window.
+
+### Setup
+
+1. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER`
+   in `.env.local` (all three, or calls honestly report `not_configured`).
+2. In **Settings > Phone Calls**, enter your own phone number in E.164
+   format (e.g. `+919876543210`) — this is the number NOVA calls/texts on
+   escalation. It's intentionally separate from any contact info on a
+   "Call" reminder (e.g. "call the dentist"), which is unrelated per-reminder
+   data, not an escalation destination.
+3. Click **Send Test Call**, confirm the destination number in the shown
+   prompt, then **Confirm Test Call** to place a real test call. Nothing
+   fires without that explicit confirmation.
+
+### How it works
+
+- `lib/notifications/validatePhoneNumber.ts` rejects anything that isn't a
+  standard E.164 number (`+` + 7-15 digits) before any network call is
+  attempted — no auto-correction, just a clear rejection reason.
+- `lib/notifications/callScript.ts` builds the spoken message dynamically
+  from the reminder's own title and due state ("overdue" / "due now" /
+  "due today") and XML-escapes it for safe inclusion in TwiML.
+- `twilioProvider.placeCall` sends the message as inline TwiML via the
+  `Twiml` param on Twilio's Voice API (a raw `fetch`, matching the existing
+  fetch-based style already used for SMS and Web Push) — no separate
+  public TwiML-hosting endpoint is required, so it works the same way in
+  local dev and in production.
+- Outcomes are always honest and distinct: `sent` (with the Twilio Call SID
+  as `provider_ref`), `failed`, `not_configured`, or `invalid_number`. Only
+  `sent` advances `reminder_occurrences.notification_attempt_count` /
+  `next_follow_up_at` / `follow_up_state` — the same V3 idempotency
+  mechanism already used for push/SMS, not a second system.
+- `TWILIO_AUTH_TOKEN` (and the other credentials) are read only from
+  server-side env vars — never returned by an API response, sent to the
+  client, or logged.
+
+**Known limitation**: a Twilio call-status webhook (`POST /api/twilio/status`)
+was intentionally left out of this build — the notifications table already
+records the outcome NOVA itself observed from the initial Twilio API
+response (sent/failed/not_configured/invalid_number), which is sufficient
+for the escalation engine's own idempotency; a webhook would only add
+after-the-fact ring/answer status, at the cost of request-signature
+validation this build doesn't need yet.
+
 ### Browser compatibility
 
 - **Chrome, Edge, Firefox (desktop and Android)**: full Web Push support.

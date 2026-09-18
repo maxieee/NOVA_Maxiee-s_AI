@@ -194,6 +194,7 @@ class LocalDataLayer implements DataLayer {
       preferred_channels: channelRows.map((c) => c.channel),
       max_follow_up_attempts: row?.max_follow_up_attempts ?? 8,
       escalation_threshold_repeats: row?.escalation_threshold_repeats ?? 3,
+      phone_number: row?.phone_number ?? null,
     };
   }
 
@@ -226,6 +227,7 @@ class LocalDataLayer implements DataLayer {
       escalate_urgent_reminders: "escalate_urgent_reminders",
       max_follow_up_attempts: "max_follow_up_attempts",
       escalation_threshold_repeats: "escalation_threshold_repeats",
+      phone_number: "phone_number",
     };
 
     const sets: string[] = [];
@@ -319,12 +321,13 @@ class LocalDataLayer implements DataLayer {
     outcome: NotificationOutcome;
     attemptNumber?: number;
     escalationLevel?: number;
+    providerRef?: string | null;
   }): void {
     const db = getDb();
     const now = new Date().toISOString();
     db.prepare(
-      `insert into notifications (id, reminder_id, occurrence_id, sent_at, channel, message, outcome, attempt_number, escalation_level)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `insert into notifications (id, reminder_id, occurrence_id, sent_at, channel, message, outcome, attempt_number, escalation_level, provider_ref)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newId(),
       args.reminderId,
@@ -334,7 +337,8 @@ class LocalDataLayer implements DataLayer {
       args.message,
       args.outcome,
       args.attemptNumber ?? 1,
-      args.escalationLevel ?? 0
+      args.escalationLevel ?? 0,
+      args.providerRef ?? null
     );
     const action = (args.escalationLevel ?? 0) > 0 ? "escalated" : "notified";
     db.prepare(

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PersonalizationForm } from "@/components/settings/PersonalizationForm";
 import { PersonalAssistantMemory } from "@/components/settings/PersonalAssistantMemory";
 import { PushNotificationSettings } from "@/components/settings/PushNotificationSettings";
+import { PhoneCallSettings } from "@/components/settings/PhoneCallSettings";
 import { isTwilioConfigured } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +60,10 @@ export default function SettingsPage() {
 
         <div className="md:col-span-2">
           <PushNotificationSettings />
+        </div>
+
+        <div className="md:col-span-2">
+          <PhoneCallSettings initialPhoneNumber={prefs.phone_number} />
         </div>
 
         <div className="nova-card p-5 md:col-span-2">

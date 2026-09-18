@@ -25,7 +25,7 @@ export type NotificationChannel = "push" | "sms" | "email" | "call";
 
 export type ReminderIntensity = "gentle" | "normal" | "persistent" | "critical";
 
-export type NotificationOutcome = "sent" | "failed" | "not_configured";
+export type NotificationOutcome = "sent" | "failed" | "not_configured" | "invalid_number";
 
 export type NotificationBehavior = "notify_once" | "repeat_until_done" | "silent";
 
@@ -138,6 +138,7 @@ export interface NotificationLogEntry {
   attempt_number?: number;
   escalation_level?: number;
   message: string;
+  provider_ref?: string | null;
 }
 
 export interface ReminderHistoryEntry {
@@ -224,6 +225,8 @@ export interface UserPreferences {
   // Follow-up engine tuning (defaults mirror lib/notifications/followUpConfig.ts).
   max_follow_up_attempts: number;
   escalation_threshold_repeats: number;
+  /** The number NOVA calls/texts on escalation — the person's own phone, not any reminder's call_details contact. */
+  phone_number: string | null;
 }
 
 export type UserPreferencesUpdate = Partial<

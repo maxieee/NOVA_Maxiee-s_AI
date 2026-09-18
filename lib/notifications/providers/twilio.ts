@@ -1,5 +1,7 @@
 import type { NotificationProvider, ProviderResult } from "./types";
 import { localProvider } from "./local";
+import { validatePhoneNumber } from "../validatePhoneNumber";
+import { escapeForTwiml } from "../callScript";
 
 /**
  * Twilio-backed provider for phone calls (and, since it's the same account,
@@ -37,11 +39,18 @@ async function twilioRequest(
     });
 
     if (!res.ok) {
+      // Never log the auth token or the Authorization header — only the
+      // response body Twilio itself returned.
       const text = await res.text().catch(() => "");
       return { outcome: "failed", detail: `Twilio ${resource} request failed (${res.status}): ${text}` };
     }
 
-    return { outcome: "sent", detail: `Twilio ${resource} request accepted.` };
+    const json = (await res.json().catch(() => null)) as { sid?: string } | null;
+    return {
+      outcome: "sent",
+      detail: `Twilio ${resource} request accepted.`,
+      providerRef: json?.sid,
+    };
   } catch (err) {
     return {
       outcome: "failed",
@@ -59,8 +68,9 @@ export const twilioProvider: NotificationProvider = {
     if (!creds) {
       return { outcome: "not_configured", detail: "SMS is not configured. Requires provider setup." };
     }
-    if (!to) {
-      return { outcome: "failed", detail: "No phone number on file for this reminder." };
+    const check = validatePhoneNumber(to);
+    if (!check.valid) {
+      return { outcome: "invalid_number", detail: check.reason ?? "Invalid phone number." };
     }
     return twilioRequest(creds.accountSid, creds.authToken, "Messages", {
       To: to,
@@ -69,16 +79,32 @@ export const twilioProvider: NotificationProvider = {
     });
   },
 
+  /**
+   * Places a real outbound voice call via Twilio's REST Voice API using a
+   * raw `fetch` (matching the existing fetch-based style already used
+   * here for SMS and in webpush.ts, rather than pulling in the `twilio`
+   * npm SDK). The spoken message is passed as inline TwiML via the
+   * `Twiml` param (a `<Response><Say>...</Say></Response>` document),
+   * which Twilio executes directly — no separate public TwiML-hosting
+   * endpoint is required for this to work in any environment, including
+   * local dev with no deployed URL.
+   *
+   * Never fabricates success: pre-flight number validation happens before
+   * any network call and returns "invalid_number" without touching
+   * Twilio; missing credentials return "not_configured"; only a genuine
+   * Twilio 2xx/"queued" response returns "sent" (with the Call SID as
+   * `providerRef`).
+   */
   async placeCall(to, message) {
     const creds = credentials();
     if (!creds) {
       return { outcome: "not_configured", detail: "Phone calling is not configured yet." };
     }
-    if (!to) {
-      return { outcome: "failed", detail: "No phone number on file for this reminder." };
+    const check = validatePhoneNumber(to);
+    if (!check.valid) {
+      return { outcome: "invalid_number", detail: check.reason ?? "Invalid phone number." };
     }
-    // Twiml bin/echo: speak the message via Twilio's inline TwiML support.
-    const twiml = `<Response><Say>${message.replace(/[<>&]/g, "")}</Say></Response>`;
+    const twiml = `<Response><Say>${escapeForTwiml(message)}</Say></Response>`;
     return twilioRequest(creds.accountSid, creds.authToken, "Calls", {
       To: to,
       From: creds.fromNumber,

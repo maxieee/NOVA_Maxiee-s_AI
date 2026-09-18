@@ -34,6 +34,7 @@ export function ensureSchema(db: Database.Database) {
       escalate_urgent_reminders integer not null default 1,
       max_follow_up_attempts integer not null default 8,
       escalation_threshold_repeats integer not null default 3,
+      phone_number text,
       updated_at text not null default (datetime('now'))
     );
 
@@ -163,7 +164,8 @@ export function ensureSchema(db: Database.Database) {
       message text not null,
       outcome text not null default 'sent',
       attempt_number integer not null default 1,
-      escalation_level integer not null default 0
+      escalation_level integer not null default 0,
+      provider_ref text
     );
 
     create table if not exists reminder_history (
@@ -258,4 +260,8 @@ function migrateAddColumns(db: Database.Database) {
   addColumn("notifications", "attempt_number", "attempt_number integer not null default 1");
   addColumn("notifications", "escalation_level", "escalation_level integer not null default 0");
   addColumn("reminder_history", "occurrence_id", "occurrence_id text");
+
+  // 0006_call_escalation.sql — real phone-call escalation.
+  addColumn("user_preferences", "phone_number", "phone_number text");
+  addColumn("notifications", "provider_ref", "provider_ref text");
 }
