@@ -257,6 +257,55 @@ export function ensureSchema(db: Database.Database) {
 
     create index if not exists idx_proactive_notifications_lookup
       on proactive_notifications(user_id, rule_id, subject_type, subject_id, fired_at);
+
+    -- 0010_integrations_automation.sql (V11)
+    create table if not exists integration_accounts (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      provider text not null,
+      status text not null default 'not_connected'
+        check (status in ('not_connected', 'connected', 'error', 'expired')),
+      access_token text,
+      refresh_token text,
+      expires_at text,
+      connected_at text,
+      last_sync_at text,
+      last_error text,
+      created_at text not null default (datetime('now')),
+      updated_at text not null default (datetime('now')),
+      unique (user_id, provider)
+    );
+
+    create table if not exists automations (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      name text not null,
+      trigger_type text not null
+        check (trigger_type in ('reminder_completed', 'payment_overdue', 'cron_daily', 'cron_weekly')),
+      trigger_config text not null default '{}',
+      condition_config text,
+      action_type text not null check (action_type in ('create_reminder', 'send_notification')),
+      action_config text not null default '{}',
+      enabled integer not null default 1,
+      created_at text not null default (datetime('now')),
+      updated_at text not null default (datetime('now')),
+      last_run_at text
+    );
+
+    create index if not exists idx_automations_user on automations(user_id);
+    create index if not exists idx_automations_trigger on automations(user_id, trigger_type, enabled);
+
+    create table if not exists automation_runs (
+      id text primary key,
+      automation_id text not null references automations(id) on delete cascade,
+      triggered_at text not null default (datetime('now')),
+      trigger_context text,
+      outcome text not null check (outcome in ('success', 'failed', 'skipped_condition', 'skipped_cooldown')),
+      detail text,
+      created_at text not null default (datetime('now'))
+    );
+
+    create index if not exists idx_automation_runs_automation on automation_runs(automation_id, triggered_at);
   `);
 
   migrateAddColumns(db);
@@ -343,4 +392,7 @@ function migrateAddColumns(db: Database.Database) {
     "source text not null default 'user_entered'"
   );
   addColumn("personal_context_entries", "active", "active integer not null default 1");
+
+  // 0010_integrations_automation.sql (V11) — anti-chaining marker.
+  addColumn("reminders", "created_by_automation", "created_by_automation integer not null default 0");
 }

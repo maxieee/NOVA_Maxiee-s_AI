@@ -17,6 +17,13 @@ import type {
   PaymentCycle,
   ProactiveNotificationRecord,
   ProactiveNotificationOutcome,
+  IntegrationAccountRecord,
+  IntegrationProvider,
+  IntegrationStatus,
+  AutomationRecord,
+  AutomationInput,
+  AutomationRunRecord,
+  AutomationRunOutcome,
 } from "@/types/reminder";
 
 /**
@@ -133,6 +140,43 @@ export interface DataLayer {
     outcome: ProactiveNotificationOutcome;
   }): ProactiveNotificationRecord;
   listProactiveNotifications(userId: string, limit?: number): ProactiveNotificationRecord[];
+
+  // V11: anti-chaining check for the reminder_completed trigger.
+  wasCreatedByAutomation(reminderId: string): boolean;
+
+  // V11: Integrations
+  getIntegrationAccount(userId: string, provider: IntegrationProvider): IntegrationAccountRecord | null;
+  upsertIntegrationAccount(
+    userId: string,
+    provider: IntegrationProvider,
+    fields: Partial<{
+      status: IntegrationStatus;
+      access_token: string | null;
+      refresh_token: string | null;
+      expires_at: string | null;
+      connected_at: string | null;
+      last_sync_at: string | null;
+      last_error: string | null;
+    }>
+  ): IntegrationAccountRecord;
+
+  // V11: Automation
+  listAutomations(userId: string): AutomationRecord[];
+  getAutomation(id: string): AutomationRecord | null;
+  createAutomation(userId: string, input: AutomationInput): AutomationRecord;
+  updateAutomation(
+    id: string,
+    changes: Partial<Pick<AutomationRecord, "name" | "enabled" | "trigger_config" | "condition_config" | "action_config">>
+  ): AutomationRecord | null;
+  deleteAutomation(id: string): void;
+  touchAutomationLastRun(id: string, at: string): void;
+  logAutomationRun(args: {
+    automationId: string;
+    triggerContext?: string | null;
+    outcome: AutomationRunOutcome;
+    detail?: string | null;
+  }): AutomationRunRecord;
+  listAutomationRuns(automationId: string, limit?: number): AutomationRunRecord[];
 }
 
 export interface ReminderFilter {

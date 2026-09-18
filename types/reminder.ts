@@ -219,6 +219,10 @@ export interface ReminderInput {
   follow_up?: FollowUpDetails;
   recurrence?: Partial<RecurrenceRule>;
   channels?: NotificationChannel[];
+  /** Set by lib/automation/engine.ts only — flags this reminder as
+   * automation-created so it can never itself re-trigger a
+   * reminder_created/reminder_completed automation (anti-chaining). */
+  createdByAutomation?: boolean;
   intensity?: ReminderIntensity;
 }
 
@@ -348,4 +352,69 @@ export interface PaymentCycle {
   reminder_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// --- V11: Integrations + Automation -----------------------------------
+
+export type IntegrationProvider = "google_calendar";
+export type IntegrationStatus = "not_connected" | "connected" | "error" | "expired";
+
+export interface IntegrationAccountRecord {
+  id: string;
+  user_id: string;
+  provider: IntegrationProvider;
+  status: IntegrationStatus;
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_at: string | null;
+  connected_at: string | null;
+  last_sync_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AutomationTriggerType =
+  | "reminder_completed"
+  | "payment_overdue"
+  | "cron_daily"
+  | "cron_weekly";
+
+export type AutomationActionType = "create_reminder" | "send_notification";
+
+export type AutomationRunOutcome = "success" | "failed" | "skipped_condition" | "skipped_cooldown";
+
+export interface AutomationRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  trigger_type: AutomationTriggerType;
+  trigger_config: string; // JSON
+  condition_config: string | null; // JSON
+  action_type: AutomationActionType;
+  action_config: string; // JSON
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  last_run_at: string | null;
+}
+
+export interface AutomationInput {
+  name: string;
+  trigger_type: AutomationTriggerType;
+  trigger_config?: Record<string, unknown>;
+  condition_config?: Record<string, unknown> | null;
+  action_type: AutomationActionType;
+  action_config: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface AutomationRunRecord {
+  id: string;
+  automation_id: string;
+  triggered_at: string;
+  trigger_context: string | null;
+  outcome: AutomationRunOutcome;
+  detail: string | null;
+  created_at: string;
 }

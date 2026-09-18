@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { computeNextOccurrence } from "@/lib/scheduling/recurrence";
 import { toISODate } from "@/lib/utils/date";
+import { onReminderCompleted } from "@/lib/automation/engine";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -9,6 +10,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const completed = db.completeReminder(id);
+
+  // V11 Automation Engine: fire any enabled reminder_completed automations
+  // at the exact point this event already happens — never a poller.
+  if (completed) {
+    await onReminderCompleted(completed);
+  }
 
   // Recurring reminders: reschedule a fresh occurrence instead of staying
   // completed forever.

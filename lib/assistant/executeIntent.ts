@@ -12,6 +12,7 @@ import { scanAndProcessDueReminders } from "@/lib/scheduling/dueScan";
 import { buildTodayViewModel } from "@/lib/scheduling/todayIntelligence";
 import { getUrgency, getNeedsAttention } from "@/lib/scheduling/urgency";
 import { derivePaymentCycleStatus } from "@/lib/scheduling/paymentCycles";
+import { onReminderCompleted } from "@/lib/automation/engine";
 import type { AssistantIntent } from "./intents";
 import type { SessionContext } from "./context";
 import { resolveReminder, resolvePaymentAccount } from "./resolveEntity";
@@ -133,6 +134,8 @@ export async function executeIntent(intent: AssistantIntent, context: SessionCon
       if (!completed || !verified || verified.status !== "completed") {
         return fail(respond.replyForFailure("mark that as done", "the change didn't persist"));
       }
+      // V11 Automation Engine: same hook point as the /done API route.
+      await onReminderCompleted(verified);
       return ok(respond.replyForComplete(verified), {
         resultSummary: `completed reminder ${verified.id}`,
         referencedReminderId: verified.id,

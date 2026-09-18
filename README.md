@@ -660,3 +660,126 @@ correctly hidden/absent in this headless environment, since it has no
   constraint against ever claiming background microphone capability.
 - Voice reply quality/voice selection is whatever `SpeechSynthesis` offers
   in the browser/OS; NOVA does not bundle its own TTS voice.
+
+## V11 — Integrations + Automation
+
+V11 adds two independent pieces: an **integration connector architecture**
+(currently one real, honestly-unconnected scaffold: Google Calendar) and a
+fully working, fully tested **automation engine** (trigger -> condition ->
+action -> execution -> verification -> history) built entirely on
+internal triggers, so it needs no external OAuth to be real and solid.
+
+### Integration architecture
+
+`lib/integrations/types.ts` defines `IntegrationConnector` — `isConfigured()`,
+`getAuthUrl()`, `exchangeCode()`, `fetchEvents()` — shaped around what a real
+Google Calendar OAuth2 (authorization-code flow) + Calendar API v3
+(read-only) integration actually needs, so a future provider (Gmail,
+Outlook, …) can implement the same contract.
+
+`lib/integrations/googleCalendar.ts` is the one connector this pass ships.
+It builds **real, correct OAuth2 URLs** against Google's documented
+endpoints (`accounts.google.com/o/oauth2/v2/auth`,
+`oauth2.googleapis.com/token`) and makes a real `fetch()`-based token
+exchange and a real read-only `events.list` call when configured — but
+**this sandbox has no real Google Cloud project and no browser to complete
+a consent screen**, so none of that has been exercised end-to-end against
+a live Google account. `isConfigured()` honestly returns `false` unless
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REDIRECT_URI` are all
+set — exactly like the existing Twilio/Web Push "not configured" pattern
+— and no code path ever reports "connected" without a real token exchange
+actually succeeding.
+
+**To connect a real Google Calendar**, once you have a Google Cloud
+project with the Calendar API enabled and an OAuth2 "Web application"
+client:
+1. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
+   (matching an "Authorized redirect URI" on that client, e.g.
+   `http://localhost:3000/api/integrations/google/callback`) in `.env.local`.
+2. Open Settings → Integrations → Connect. `GET /api/integrations/google/connect`
+   redirects to Google's real consent screen; `GET /api/integrations/google/callback`
+   performs the real token exchange and persists the result to
+   `integration_accounts` (`connected`/`error`, never fabricated).
+
+Tokens are stored as-is in `integration_accounts` for now — a single-user
+local app. **Documented gap**: a production deployment with real
+credentials would need encryption-at-rest for `access_token`/
+`refresh_token`; not solved in this pass since no real token is ever
+written in this environment.
+
+### Automation engine
+
+`lib/automation/engine.ts` is the impure orchestrator (same architectural
+role as `lib/proactive/engine.ts`): the only place automation logic
+touches the DB/providers. Supported triggers: `reminder_completed`
+(event-based, fired synchronously at the two existing call sites where a
+reminder is already marked done — `app/api/reminders/[id]/done/route.ts`
+and `lib/assistant/executeIntent.ts`'s `COMPLETE_REMINDER` case),
+`payment_overdue` and the periodic `cron_daily`/`cron_weekly` (both
+evaluated inside the **same** `POST /api/cron/process-due-reminders`
+invocation as the existing due-reminder scan and V8 proactive
+intelligence — no second scheduler). Actions call **only** existing
+functions: `create_reminder` → `db.createReminder` (the same path V7's
+assistant and the reminders API already use), `send_notification` → the
+existing honest notification provider abstraction (push/SMS/call/email,
+never a new one).
+
+**Idempotency**: an event-triggered automation checks its own
+`automation_runs` history for a prior `success` against the same
+`trigger_context` (the reminder id, or the overdue cycle id) before
+acting — replaying the same event never double-fires. A periodic
+automation tracks `automations.last_run_at` and computes a period key
+(calendar day for daily, ISO week for weekly); a second evaluation within
+the same period is skipped and logged as `skipped_cooldown`, mirroring
+V8's cooldown pattern.
+
+**Anti-chaining**: a hard rule for this pass, not a hop-count heuristic.
+Every reminder an automation action creates is flagged
+`reminders.created_by_automation = 1` (additive column, migration 0010).
+`onReminderCompleted()` refuses to fire *any* automation for a reminder
+carrying that flag. This means an automation's own output can never
+itself satisfy another automation's `reminder_completed` trigger — no
+automation can trigger itself or another automation, directly or
+indirectly, through this pass's trigger set.
+
+**Rate limiting / safety**: automations never delete data, never touch a
+reminder/account they didn't create, and every outcome — success,
+failure, skipped-by-condition, skipped-by-cooldown — is written to
+`automation_runs` (full audit history), never silently dropped.
+
+### Data model (migration `0010_integrations_automation.sql`)
+
+- `integration_accounts` — one row per (user, provider); `status`
+  (`not_connected`/`connected`/`error`/`expired`), tokens, timestamps.
+- `automations` — `trigger_type`, `trigger_config`/`condition_config`/
+  `action_config` (JSON), `enabled`, `last_run_at`.
+- `automation_runs` — full history: `outcome`
+  (`success`/`failed`/`skipped_condition`/`skipped_cooldown`), `detail`,
+  `trigger_context`.
+- `reminders.created_by_automation` — the anti-chaining marker.
+
+### Automation templates (UI scope decision)
+
+V11 ships a small, fixed set of pre-defined, safely-parameterized
+templates (`lib/automation/templates.ts`) rather than a full arbitrary
+trigger/condition/action composer — an explicit scope decision to keep
+the UI honest and small:
+- "When a reminder is completed, create a follow-up reminder"
+- "Every Monday, remind me to review the week" (`cron_weekly`)
+- "When a payment is overdue, send me a notification"
+
+Manage automations at `/automations` (linked from Settings): enable/
+disable, delete, and view each automation's full run history. Settings
+also gained an **Integrations** card showing Google Calendar's honest
+connection status.
+
+### Known limitations
+
+- Google Calendar's real token exchange and Calendar API read have never
+  been exercised against a live account in this environment — only their
+  "not configured" paths and OAuth URL construction are verified (see
+  `tests/integrations.test.ts`).
+- `integration_accounts` tokens are not encrypted at rest (documented
+  above).
+- No Gmail/Outlook connector in this pass — one well-built connector plus
+  the general interface was judged more honest than three half-built ones.

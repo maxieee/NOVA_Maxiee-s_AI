@@ -5,6 +5,7 @@ import { PersonalAssistantMemory } from "@/components/settings/PersonalAssistant
 import { PushNotificationSettings } from "@/components/settings/PushNotificationSettings";
 import { PhoneCallSettings } from "@/components/settings/PhoneCallSettings";
 import { ProactiveIntelligenceSettings } from "@/components/settings/ProactiveIntelligenceSettings";
+import { IntegrationsSettings } from "@/components/settings/IntegrationsSettings";
 import { isTwilioConfigured } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
@@ -73,6 +74,24 @@ export default function SettingsPage() {
             enabled={prefs.proactive_intelligence_enabled}
             history={proactiveHistory}
           />
+        </div>
+
+        <div className="md:col-span-2">
+          <IntegrationsSettings />
+        </div>
+
+        <div className="nova-card p-5 md:col-span-2">
+          <h3 className="mb-2 text-sm font-semibold text-white">Automations</h3>
+          <p className="text-sm text-nova-muted">
+            Set up rules like &quot;when a reminder is completed, create a follow-up&quot; or
+            &quot;every Monday, remind me to review the week&quot; — full run history included.
+          </p>
+          <a
+            href="/automations"
+            className="mt-3 inline-block rounded-full bg-nova-primary/20 px-4 py-1.5 text-xs font-medium text-nova-primary"
+          >
+            Manage automations
+          </a>
         </div>
 
         <div className="nova-card p-5 md:col-span-2">

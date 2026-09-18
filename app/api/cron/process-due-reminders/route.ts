@@ -4,6 +4,7 @@ import { scanAndProcessDueReminders } from "@/lib/scheduling/dueScan";
 import { generateMissingCycles, refreshCycleStatuses } from "@/lib/scheduling/paymentCycles";
 import { generateMissingReminders } from "@/lib/scheduling/paymentReminders";
 import { runProactiveIntelligence } from "@/lib/proactive/engine";
+import { runPeriodicAutomations, runPaymentOverdueAutomations } from "@/lib/automation/engine";
 
 /**
  * Server-side "source of truth" cron endpoint. Meant to be invoked by a
@@ -42,5 +43,17 @@ export async function POST(req: NextRequest) {
   // sends alerts through the same honest provider abstraction.
   const proactive = await runProactiveIntelligence();
 
-  return NextResponse.json({ processed: results.length, results, proactive });
+  // V11 Automation Engine (time-based + payment_overdue triggers): same
+  // cron invocation, not a second scheduler. Event-based triggers
+  // (reminder_completed) fire synchronously at their own call sites
+  // instead — see lib/automation/engine.ts.
+  const periodicAutomations = await runPeriodicAutomations();
+  const paymentOverdueAutomations = await runPaymentOverdueAutomations();
+
+  return NextResponse.json({
+    processed: results.length,
+    results,
+    proactive,
+    automations: { periodic: periodicAutomations, paymentOverdue: paymentOverdueAutomations },
+  });
 }

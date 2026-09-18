@@ -29,6 +29,13 @@ import type {
   PaymentCycle,
   ProactiveNotificationRecord,
   ProactiveNotificationOutcome,
+  IntegrationAccountRecord,
+  IntegrationProvider,
+  IntegrationStatus,
+  AutomationRecord,
+  AutomationInput,
+  AutomationRunRecord,
+  AutomationRunOutcome,
 } from "@/types/reminder";
 import { seedIfEmpty } from "./seed-data";
 
@@ -427,8 +434,8 @@ class LocalDataLayer implements DataLayer {
     const now = new Date().toISOString();
 
     const insertReminder = db.prepare(`
-      insert into reminders (id, user_id, title, description, date, time, priority, notes, status, intensity, created_at, updated_at)
-      values (@id, @user_id, @title, @description, @date, @time, @priority, @notes, 'scheduled', @intensity, @created_at, @updated_at)
+      insert into reminders (id, user_id, title, description, date, time, priority, notes, status, intensity, created_by_automation, created_at, updated_at)
+      values (@id, @user_id, @title, @description, @date, @time, @priority, @notes, 'scheduled', @intensity, @created_by_automation, @created_at, @updated_at)
     `);
 
     const tx = db.transaction(() => {
@@ -442,6 +449,7 @@ class LocalDataLayer implements DataLayer {
         priority: input.priority,
         notes: input.notes ?? null,
         intensity: input.intensity ?? "normal",
+        created_by_automation: input.createdByAutomation ? 1 : 0,
         created_at: now,
         updated_at: now,
       });
@@ -1072,6 +1080,205 @@ class LocalDataLayer implements DataLayer {
         .prepare(`select * from proactive_notifications where user_id = ? order by fired_at desc limit ?`)
         .all(userId, limit) as any[]
     ).map((r) => this.rowToProactiveNotification(r));
+  }
+
+  // --- V11: Integrations + Automation ------------------------------------
+
+  wasCreatedByAutomation(reminderId: string): boolean {
+    const db = getDb();
+    const row = db.prepare(`select created_by_automation from reminders where id = ?`).get(reminderId) as
+      | { created_by_automation: number }
+      | undefined;
+    return !!row && row.created_by_automation === 1;
+  }
+
+  private rowToIntegrationAccount(row: any): IntegrationAccountRecord {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      provider: row.provider,
+      status: row.status,
+      access_token: row.access_token,
+      refresh_token: row.refresh_token,
+      expires_at: row.expires_at,
+      connected_at: row.connected_at,
+      last_sync_at: row.last_sync_at,
+      last_error: row.last_error,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
+  getIntegrationAccount(userId: string, provider: IntegrationProvider): IntegrationAccountRecord | null {
+    const db = getDb();
+    const row = db
+      .prepare(`select * from integration_accounts where user_id = ? and provider = ?`)
+      .get(userId, provider) as any;
+    return row ? this.rowToIntegrationAccount(row) : null;
+  }
+
+  upsertIntegrationAccount(
+    userId: string,
+    provider: IntegrationProvider,
+    fields: Partial<{
+      status: IntegrationStatus;
+      access_token: string | null;
+      refresh_token: string | null;
+      expires_at: string | null;
+      connected_at: string | null;
+      last_sync_at: string | null;
+      last_error: string | null;
+    }>
+  ): IntegrationAccountRecord {
+    const db = getDb();
+    const existing = this.getIntegrationAccount(userId, provider);
+    const now = new Date().toISOString();
+    if (!existing) {
+      const id = newId();
+      db.prepare(
+        `insert into integration_accounts
+         (id, user_id, provider, status, access_token, refresh_token, expires_at, connected_at, last_sync_at, last_error, created_at, updated_at)
+         values (@id, @user_id, @provider, @status, @access_token, @refresh_token, @expires_at, @connected_at, @last_sync_at, @last_error, @created_at, @updated_at)`
+      ).run({
+        id,
+        user_id: userId,
+        provider,
+        status: fields.status ?? "not_connected",
+        access_token: fields.access_token ?? null,
+        refresh_token: fields.refresh_token ?? null,
+        expires_at: fields.expires_at ?? null,
+        connected_at: fields.connected_at ?? null,
+        last_sync_at: fields.last_sync_at ?? null,
+        last_error: fields.last_error ?? null,
+        created_at: now,
+        updated_at: now,
+      });
+      return this.getIntegrationAccount(userId, provider)!;
+    }
+    const merged = { ...existing, ...fields, updated_at: now };
+    db.prepare(
+      `update integration_accounts set status = @status, access_token = @access_token, refresh_token = @refresh_token,
+       expires_at = @expires_at, connected_at = @connected_at, last_sync_at = @last_sync_at, last_error = @last_error,
+       updated_at = @updated_at where id = @id`
+    ).run({ ...merged, id: existing.id });
+    return this.getIntegrationAccount(userId, provider)!;
+  }
+
+  private rowToAutomation(row: any): AutomationRecord {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      name: row.name,
+      trigger_type: row.trigger_type,
+      trigger_config: row.trigger_config,
+      condition_config: row.condition_config,
+      action_type: row.action_type,
+      action_config: row.action_config,
+      enabled: !!row.enabled,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      last_run_at: row.last_run_at,
+    };
+  }
+
+  listAutomations(userId: string): AutomationRecord[] {
+    const db = getDb();
+    return (
+      db.prepare(`select * from automations where user_id = ? order by created_at desc`).all(userId) as any[]
+    ).map((r) => this.rowToAutomation(r));
+  }
+
+  getAutomation(id: string): AutomationRecord | null {
+    const db = getDb();
+    const row = db.prepare(`select * from automations where id = ?`).get(id) as any;
+    return row ? this.rowToAutomation(row) : null;
+  }
+
+  createAutomation(userId: string, input: AutomationInput): AutomationRecord {
+    const db = getDb();
+    const id = newId();
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into automations
+       (id, user_id, name, trigger_type, trigger_config, condition_config, action_type, action_config, enabled, created_at, updated_at)
+       values (@id, @user_id, @name, @trigger_type, @trigger_config, @condition_config, @action_type, @action_config, @enabled, @created_at, @updated_at)`
+    ).run({
+      id,
+      user_id: userId,
+      name: input.name,
+      trigger_type: input.trigger_type,
+      trigger_config: JSON.stringify(input.trigger_config ?? {}),
+      condition_config: input.condition_config ? JSON.stringify(input.condition_config) : null,
+      action_type: input.action_type,
+      action_config: JSON.stringify(input.action_config),
+      enabled: input.enabled === false ? 0 : 1,
+      created_at: now,
+      updated_at: now,
+    });
+    return this.getAutomation(id)!;
+  }
+
+  updateAutomation(
+    id: string,
+    changes: Partial<Pick<AutomationRecord, "name" | "enabled" | "trigger_config" | "condition_config" | "action_config">>
+  ): AutomationRecord | null {
+    const db = getDb();
+    const existing = this.getAutomation(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    const merged = {
+      name: changes.name ?? existing.name,
+      enabled: changes.enabled ?? existing.enabled,
+      trigger_config: changes.trigger_config ?? existing.trigger_config,
+      condition_config: changes.condition_config !== undefined ? changes.condition_config : existing.condition_config,
+      action_config: changes.action_config ?? existing.action_config,
+    };
+    db.prepare(
+      `update automations set name = @name, enabled = @enabled, trigger_config = @trigger_config,
+       condition_config = @condition_config, action_config = @action_config, updated_at = @updated_at where id = @id`
+    ).run({ ...merged, enabled: merged.enabled ? 1 : 0, updated_at: now, id });
+    return this.getAutomation(id);
+  }
+
+  deleteAutomation(id: string): void {
+    const db = getDb();
+    db.prepare(`delete from automations where id = ?`).run(id);
+  }
+
+  touchAutomationLastRun(id: string, at: string): void {
+    const db = getDb();
+    db.prepare(`update automations set last_run_at = ? where id = ?`).run(at, id);
+  }
+
+  logAutomationRun(args: {
+    automationId: string;
+    triggerContext?: string | null;
+    outcome: AutomationRunOutcome;
+    detail?: string | null;
+  }): AutomationRunRecord {
+    const db = getDb();
+    const id = newId();
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into automation_runs (id, automation_id, triggered_at, trigger_context, outcome, detail, created_at)
+       values (@id, @automation_id, @triggered_at, @trigger_context, @outcome, @detail, @created_at)`
+    ).run({
+      id,
+      automation_id: args.automationId,
+      triggered_at: now,
+      trigger_context: args.triggerContext ?? null,
+      outcome: args.outcome,
+      detail: args.detail ?? null,
+      created_at: now,
+    });
+    return db.prepare(`select * from automation_runs where id = ?`).get(id) as AutomationRunRecord;
+  }
+
+  listAutomationRuns(automationId: string, limit = 50): AutomationRunRecord[] {
+    const db = getDb();
+    return db
+      .prepare(`select * from automation_runs where automation_id = ? order by triggered_at desc limit ?`)
+      .all(automationId, limit) as AutomationRunRecord[];
   }
 }
 
