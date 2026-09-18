@@ -406,3 +406,145 @@ already covered by `tests/escalation.test.ts` /
 `tests/followup-engine.test.ts` (which do assert escalation), so this is a
 timing artifact of the demo script's sleep durations, not a gap in the
 production logic.
+
+## V7 — Natural Language Assistant
+
+A deterministic, local, rule-based natural-language interface layer over
+the existing reminder/payment engines. No external LLM API is required or
+used for core functionality — parsing is regex/keyword-based and fully
+unit-tested. This is an INTERFACE LAYER ONLY: it never touches SQLite
+directly and never re-implements due-date, urgency, escalation or
+recurrence math — it parses text into a strict intent, resolves it against
+real data, and calls the same DataLayer methods the existing REST routes
+call.
+
+### Pipeline
+
+`PARSE -> VALIDATE -> RESOLVE -> EXECUTE -> VERIFY -> RESPOND`, implemented in:
+
+- `lib/assistant/intents.ts` — the strict intent allowlist (a TypeScript
+  discriminated union of exactly 11 intents, no `any`/free-form fields).
+- `lib/assistant/dateParsing.ts` + `lib/assistant/parser.ts` — pure,
+  deterministic text -> structured-intent extraction (no DB/IO), using
+  `date-fns` (the project's existing date library) for all date arithmetic.
+- `lib/assistant/validate.ts` — fills in only real, existing defaults
+  (e.g. `user_preferences.default_reminder_time`) and turns missing/unsafe
+  input into a clarification question, never a guess.
+- `lib/assistant/resolveEntity.ts` — deterministic entity resolution:
+  exact name -> normalized/token-order-independent partial match -> unique
+  partial match -> conversation context -> clarification. Multiple matches
+  are never picked among randomly.
+- `lib/assistant/context.ts` — short-term, in-memory, per-session
+  conversation context (see "Conversation context" below).
+- `lib/assistant/executeIntent.ts` — the exhaustive `switch` that calls
+  existing `db.*` DataLayer methods / scheduling functions directly (the
+  same functions the REST routes call), then re-reads the persisted record
+  to verify before generating a response.
+- `lib/assistant/respond.ts` — NOVA-voice reply text; failure paths never
+  read as success.
+- `lib/assistant/pipeline.ts` — wires the above into one entry point used
+  by both the API route and tests/scripts.
+
+### Supported intents
+
+`CREATE_REMINDER`, `CREATE_RECURRING_REMINDER`, `UPDATE_REMINDER`,
+`COMPLETE_REMINDER`, `SNOOZE_REMINDER`, `REMIND_AGAIN`, `QUERY_TODAY`,
+`QUERY_UPCOMING`, `QUERY_OVERDUE`, `QUERY_PAYMENTS`, `MARK_PAYMENT_PAID` —
+plus `NEEDS_CLARIFICATION` and `UNSUPPORTED` result kinds. Nothing outside
+this list can ever reach `executeIntent`'s switch (TypeScript-checked and
+runtime-checked via an exhaustive `never` default case).
+
+Example phrases:
+
+- "remind me to call the dentist tomorrow at 10am"
+- "remind me to take out recycling every Monday at 8am"
+- "remind me to check email every weekday"
+- "snooze the dentist call for 15 minutes" / "snooze it for 15 minutes"
+- "move the dentist call to tomorrow at 3pm"
+- "mark the dentist call as done" / "complete the dentist call"
+- "remind me again about the dentist call"
+- "what do I need to do today?" / "what's overdue?" / "what's upcoming?"
+- "what payments do I have coming up?"
+- "mark the Visa card as paid"
+
+Recognized date/time phrasing: today, tomorrow, tonight, morning/
+afternoon/evening, explicit clock times ("10am", "6 PM", "14:30"),
+specific ISO dates, weekday names, relative durations ("in 2 hours", "for
+30 minutes"). Recognized recurrence phrasing: "every &lt;weekday&gt;",
+"every weekday", "every day/week/month/year", "every N days/weeks/months" —
+anything else (e.g. "every full moon") returns a clarification instead of
+a guessed approximation.
+
+### Entity resolution
+
+Order: exact name match -> normalized, token-order-independent partial
+match ("the accountant call" matches a reminder titled "Call the
+accountant") -> unique partial match -> short-term conversation context
+("it"/"that") -> clarification. Ambiguous matches are always listed back
+to the user to choose from — never picked randomly.
+
+### Conversation context (Phase 5 design decision)
+
+A simple in-memory `Map<sessionId, SessionContext>` in
+`lib/assistant/context.ts` holds only the last referenced reminder/payment
+id and the last few turns, per browser session (a `sessionId` generated
+client-side and stored in `localStorage`). This is deliberately **separate
+from** the existing "What NOVA Knows" Personal Context system
+(`personal_context_entries`): that table holds durable, explicit,
+user-entered facts surfaced anywhere NOVA reasons about the user; this
+context is ephemeral, implicit, ordinary turn-taking scratch space that
+should never leak into long-term memory. Trade-off: this state does not
+survive a server restart and isn't shared across server instances — fine
+for a single-user local/PWA app; a multi-instance deployment could swap
+the `Map` for a shared cache behind the same functions without touching
+any caller.
+
+### Execution & safety
+
+- Every mutating intent calls the exact same DataLayer method the REST
+  route calls (e.g. `db.snoozeReminder`, `db.completeReminder`,
+  `db.markPaymentCyclePaid`, `db.createReminder`), then re-reads the
+  persisted record before replying — a failed operation never produces a
+  "Done!" response (see `lib/assistant/respond.ts#replyForFailure` and the
+  honest-failure tests in `tests/assistant-execution.test.ts`).
+- Financially meaningful ambiguity (e.g. more than one open unpaid cycle
+  for an account, or more than one matching payment account) returns a
+  clarification instead of executing — the same mechanism as ordinary
+  missing-info clarification, not a separate confirmation-intent type.
+- No delete/cancel capability was added. "Delete the X reminder" is
+  `UNSUPPORTED` — deletion isn't exposed through natural language at all,
+  matching the brief's "if in doubt, leave deletion entirely unsupported"
+  guidance.
+- No raw SQL is ever constructed from user text; the parser only produces
+  values of the strict `AssistantIntent` union.
+
+### API & UI
+
+- `POST /api/assistant/message` — `{ text, sessionId }` ->
+  `{ reply, resultSummary? }`.
+- `app/assistant/page.tsx` + `components/assistant/ChatPanel.tsx` — a
+  simple chat UI using existing `nova-*` tokens, keyboard-accessible
+  (Enter to send), with an "Assistant" entry added to the existing nav
+  (`types/nav.ts`, `components/layout/Sidebar.tsx` /
+  `components/layout/BottomNav.tsx` — no other nav item was removed;
+  Assistant was appended after Calendar so the mobile bottom nav's
+  existing first five items are unchanged).
+
+### Testing
+
+```bash
+npx vitest run tests/assistant-parser.test.ts     # pure parser + date-boundary tests
+npx vitest run tests/assistant-execution.test.ts  # real DB, honest-failure, resolution tests
+npx tsx scripts/verify-assistant-e2e.ts           # scratch-DB, real end-to-end proof
+```
+
+### Known limitations
+
+- Understands only the phrasing patterns listed above — not arbitrary
+  English. Anything else returns `UNSUPPORTED` with a plain explanation of
+  what NOVA can do, rather than guessing.
+- Entity resolution is token-based, not a full fuzzy/semantic matcher —
+  very different phrasing for the same reminder may not match and will
+  ask for clarification instead.
+- Conversation context is single-process, in-memory, and does not survive
+  a server restart (by design — see above).
