@@ -34,6 +34,7 @@ const PATHS: Record<string, string> = {
   "mic-off": "M1 1l22 22M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6M19 10v2a7 7 0 0 1-.11 1.23M12 19v4M8 23h8",
   volume: "M11 5 6 9H2v6h4l5 4V5ZM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07",
   "volume-off": "M11 5 6 9H2v6h4l5 4V5ZM23 9l-6 6M17 9l6 6",
+  "bar-chart": "M12 20V10M18 20V4M6 20v-4",
 };
 
 export function Icon({

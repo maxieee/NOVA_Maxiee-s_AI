@@ -418,3 +418,20 @@ export interface AutomationRunRecord {
   detail: string | null;
   created_at: string;
 }
+
+// --- V12: Analytics + Self-Improvement --------------------------------
+
+/** Only tracks the human decision on a recommendation; never the metric/insight data itself. */
+export type AnalyticsRecommendationStatus = "pending" | "applied" | "dismissed";
+
+export interface AnalyticsRecommendationRecord {
+  id: string;
+  user_id: string;
+  type: string;
+  subject_type: string;
+  subject_id: string;
+  payload: string; // JSON
+  status: AnalyticsRecommendationStatus;
+  created_at: string;
+  updated_at: string;
+}

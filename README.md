@@ -783,3 +783,128 @@ connection status.
   above).
 - No Gmail/Outlook connector in this pass — one well-built connector plus
   the general interface was judged more honest than three half-built ones.
+
+## V12 — Analytics + Self-Improvement (final version phase)
+
+V12 adds a read-only analytics/insights layer over NOVA's own existing
+data. It never becomes a second execution engine: it computes numbers and
+suggestions from what's already persisted, and the ONLY way anything
+changes is a human clicking "Apply" on a specific recommendation, which
+goes through the same `db.rescheduleReminder` path the rest of the app
+already uses.
+
+### Metrics (`lib/analytics/metrics.ts`, pure functions, no DB access)
+
+- **Completion**: reminders created/completed in the window, completion
+  rate, average time-to-completion, current overdue count.
+- **Snooze patterns**: per-reminder snooze counts (from
+  `reminder_history.action = 'snoozed'`) and the hour-of-day their
+  resulting occurrence lands at.
+- **Notification delivery breakdown**: `sent`/`failed`/`not_configured`/
+  `invalid_number` tallies per channel, from `notifications.outcome`.
+- **Payment timing**: days from a payment reminder's first notification
+  to `payment_cycles.paid_at`, only once enough paid cycles exist.
+- **Recurring miss rate**: `reminder_occurrences.status = 'missed'` ratio
+  per reminder, once enough occurrences are recorded.
+- **Proactive intelligence activity**: `proactive_notifications` fired,
+  grouped by `rule_id`.
+- **Automation activity**: `automation_runs` grouped by automation and
+  outcome.
+
+All of this is computed from existing tables — V12 added **no schema for
+metrics themselves**, only a bounded 90-day window query
+(`db.getAnalyticsSnapshot`) so no dashboard view scans a full history
+table unbounded.
+
+### Insights (`lib/analytics/insights.ts`) — thresholds, and why they exist
+
+Every insight is a plain statistical statement about this user's own
+recorded usage — never a claim about their psychology, mood, or
+personality (no "you seem stressed", no "you're disorganized"). Each rule
+requires a minimum real sample before it fires, so NOVA never presents a
+pattern from too little data as if it were "usual":
+
+- Completion rate: needs ≥5 created reminders in the window.
+- Average time-to-completion: needs ≥3 completions.
+- A specific reminder's snooze count: needs ≥3 snoozes
+  (`MIN_SNOOZE_COUNT`).
+- "This channel never succeeds": needs ≥3 attempts on that channel
+  (`MIN_NOTIFICATION_ATTEMPTS_FOR_CHANNEL_FLAG`).
+- Payment timing: needs ≥3 paid cycles with a matched first notification
+  (`MIN_PAYMENT_TIMING_SAMPLE`) — a single paid cycle is never called a
+  "usual" pattern.
+- Recurring miss rate: needs ≥3 recorded occurrences
+  (`MIN_OCCURRENCES_FOR_MISS_RATE`).
+
+`tests/analytics-insights.test.ts` explicitly asserts that below-threshold
+inputs generate **zero** insights, and runs every generated message
+through a banned-phrase check (`stress`, `anxious`, `disorganiz`, `lazy`,
+`procrastinat`, `overwhelm`, `burnout`, `depress`, `personality`,
+`careless`, "you seem", "you are", "you're") — a cheap, explicit guard
+against a future regression toward psychological-sounding language,
+enforced by a test rather than only a code-review convention.
+
+### Recommendations (`lib/analytics/recommendations.ts`) — never auto-applied
+
+The only recommendation type in this pass: a reminder snoozed ≥3 times
+whose resulting hour clusters consistently (≥60% land in the same hour,
+`MIN_CLUSTER_RATIO`) gets a suggestion to move its default time there.
+Generating a recommendation only ever **inserts a pending row** the first
+time a pattern is seen (`db.ensureRecommendation`, insert-if-absent) — it
+never overwrites an applied/dismissed decision and never touches the
+reminder itself. The reminder only actually moves when
+`lib/analytics/apply.ts#applyRecommendation` is explicitly called (from
+`PATCH /api/analytics/recommendations/[id]` with `{action:"apply"}`),
+which calls the existing `db.rescheduleReminder` — the same function
+reminders already use elsewhere — and then marks the recommendation
+`applied` so it never resurfaces. `{action:"dismiss"}` marks it
+`dismissed` with the same guarantee. `tests/analytics-recommendations.test.ts`
+proves both the "never auto-applies" property and the real mutation once
+apply is called explicitly.
+
+### Database changes
+
+One additive migration, `database/migrations/0011_analytics.sql`
+(mirrored in `lib/db/schema-sqlite.ts`): `analytics_recommendations`
+(`id`, `user_id`, `type`, `subject_type`, `subject_id`, `payload`,
+`status` — `pending`/`applied`/`dismissed`). It stores only the human
+decision on a recommendation, never metric or insight data — those are
+always recomputed fresh from the existing tables.
+
+### UI
+
+`/analytics` (added to the main nav, same pattern as `/assistant` and
+`/automations`): completion trend, snooze pattern bars, notification
+delivery breakdown by channel, payment behavior, proactive intelligence
+and automation activity summaries, and the insights/recommendations list
+with Apply/Dismiss buttons. Built entirely with the existing `StatTile`
+and `nova-card` visual language plus plain CSS width-percentage bars — no
+new charting dependency.
+
+### Testing
+
+```
+npm test              # 216 pre-V12 tests + 21 new V12 tests, all passing
+npm run typecheck
+npm run lint
+npm run build
+```
+
+New test files: `tests/analytics-metrics.test.ts` (pure metric math, no
+DB), `tests/analytics-insights.test.ts` (threshold + banned-phrase
+guard), `tests/analytics-recommendations.test.ts` (pure recommendation
+logic + real-DB proof that nothing auto-applies), and
+`tests/analytics-integration.test.ts` (real DataLayer-backed end-to-end:
+real activity → real metrics → real insight → real recommendation →
+explicit apply → confirmed mutation).
+
+### Known limitations
+
+- Only one recommendation type ships in this pass (reschedule a
+  repeatedly-snoozed reminder's default time) — deliberately narrow so
+  every recommendation has a genuine, already-supported apply path rather
+  than a broader set with weaker guarantees.
+- Snooze-to-hour clustering is a simple mode/ratio heuristic, not a
+  full statistical model — appropriate for a single user's own small,
+  real dataset, and it says so in the recommendation text rather than
+  overstating confidence.

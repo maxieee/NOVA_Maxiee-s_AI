@@ -36,7 +36,11 @@ import type {
   AutomationInput,
   AutomationRunRecord,
   AutomationRunOutcome,
+  AnalyticsRecommendationRecord,
+  AnalyticsRecommendationStatus,
+  NotificationLogEntry,
 } from "@/types/reminder";
+import type { AnalyticsSnapshot } from "./types";
 import { seedIfEmpty } from "./seed-data";
 
 const DEFAULT_DB_PATH = path.join(process.cwd(), "database", "nova.sqlite");
@@ -1279,6 +1283,111 @@ class LocalDataLayer implements DataLayer {
     return db
       .prepare(`select * from automation_runs where automation_id = ? order by triggered_at desc limit ?`)
       .all(automationId, limit) as AutomationRunRecord[];
+  }
+
+  // --- V12: Analytics ---------------------------------------------------
+
+  getAnalyticsSnapshot(userId: string, sinceISO: string): AnalyticsSnapshot {
+    const db = getDb();
+
+    const reminders = (
+      db
+        .prepare(
+          `select * from reminders where user_id = ? and (created_at >= ? or updated_at >= ?) order by created_at asc`
+        )
+        .all(userId, sinceISO, sinceISO) as any[]
+    ).map((r) => rowToReminder(db, r));
+
+    const reminderIds = reminders.map((r) => r.id);
+    const placeholders = (arr: unknown[]) => arr.map(() => "?").join(",");
+
+    const occurrences: ReminderOccurrence[] =
+      reminderIds.length === 0
+        ? []
+        : (db
+            .prepare(
+              `select * from reminder_occurrences where reminder_id in (${placeholders(reminderIds)})`
+            )
+            .all(...reminderIds) as any[]).map((r) => ({ ...r, escalated: !!r.escalated }));
+
+    const notifications: NotificationLogEntry[] =
+      reminderIds.length === 0
+        ? []
+        : (db
+            .prepare(
+              `select * from notifications where reminder_id in (${placeholders(reminderIds)}) and sent_at >= ?`
+            )
+            .all(...reminderIds, sinceISO) as NotificationLogEntry[]);
+
+    const history: ReminderHistoryEntry[] =
+      reminderIds.length === 0
+        ? []
+        : (db
+            .prepare(
+              `select * from reminder_history where reminder_id in (${placeholders(reminderIds)}) and created_at >= ?`
+            )
+            .all(...reminderIds, sinceISO) as ReminderHistoryEntry[]);
+
+    const paymentCycles = db
+      .prepare(
+        `select pc.* from payment_cycles pc
+         join payment_accounts pa on pa.id = pc.payment_account_id
+         where pa.user_id = ? and pc.updated_at >= ?
+         order by pc.due_date asc`
+      )
+      .all(userId, sinceISO) as PaymentCycle[];
+
+    const automationRuns = db
+      .prepare(
+        `select ar.*, a.trigger_type as trigger_type, a.name as automation_name
+         from automation_runs ar
+         join automations a on a.id = ar.automation_id
+         where a.user_id = ? and ar.triggered_at >= ?
+         order by ar.triggered_at asc`
+      )
+      .all(userId, sinceISO) as (AutomationRunRecord & { trigger_type: string; automation_name: string })[];
+
+    const proactiveNotifications = db
+      .prepare(
+        `select * from proactive_notifications where user_id = ? and fired_at >= ? order by fired_at asc`
+      )
+      .all(userId, sinceISO) as ProactiveNotificationRecord[];
+
+    return { reminders, occurrences, notifications, history, paymentCycles, automationRuns, proactiveNotifications };
+  }
+
+  listRecommendationStates(userId: string): AnalyticsRecommendationRecord[] {
+    const db = getDb();
+    return db
+      .prepare(`select * from analytics_recommendations where user_id = ?`)
+      .all(userId) as AnalyticsRecommendationRecord[];
+  }
+
+  ensureRecommendation(
+    userId: string,
+    id: string,
+    fields: { type: string; subjectType: string; subjectId: string; payload: string }
+  ): void {
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into analytics_recommendations (id, user_id, type, subject_type, subject_id, payload, status, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+       on conflict(id) do nothing`
+    ).run(id, userId, fields.type, fields.subjectType, fields.subjectId, fields.payload, now, now);
+  }
+
+  setRecommendationStatus(id: string, status: AnalyticsRecommendationStatus): AnalyticsRecommendationRecord | null {
+    const db = getDb();
+    db.prepare(`update analytics_recommendations set status = ?, updated_at = ? where id = ?`).run(
+      status,
+      new Date().toISOString(),
+      id
+    );
+    return (
+      (db.prepare(`select * from analytics_recommendations where id = ?`).get(id) as AnalyticsRecommendationRecord) ??
+      null
+    );
   }
 }
 

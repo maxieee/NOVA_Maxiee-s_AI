@@ -306,6 +306,23 @@ export function ensureSchema(db: Database.Database) {
     );
 
     create index if not exists idx_automation_runs_automation on automation_runs(automation_id, triggered_at);
+
+    -- 0011_analytics.sql (V12) — recommendation apply/dismiss tracking only;
+    -- metrics/insights are computed on the fly from existing tables.
+    create table if not exists analytics_recommendations (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      type text not null,
+      subject_type text not null,
+      subject_id text not null,
+      payload text not null default '{}',
+      status text not null default 'pending' check (status in ('pending', 'applied', 'dismissed')),
+      created_at text not null default (datetime('now')),
+      updated_at text not null default (datetime('now'))
+    );
+
+    create index if not exists idx_analytics_recommendations_user
+      on analytics_recommendations(user_id, status);
   `);
 
   migrateAddColumns(db);

@@ -24,6 +24,8 @@ import type {
   AutomationInput,
   AutomationRunRecord,
   AutomationRunOutcome,
+  AnalyticsRecommendationRecord,
+  AnalyticsRecommendationStatus,
 } from "@/types/reminder";
 
 /**
@@ -177,6 +179,28 @@ export interface DataLayer {
     detail?: string | null;
   }): AutomationRunRecord;
   listAutomationRuns(automationId: string, limit?: number): AutomationRunRecord[];
+
+  // V12: Analytics — bounded read of raw data for pure metric computation,
+  // plus recommendation apply/dismiss state (see lib/analytics/*).
+  getAnalyticsSnapshot(userId: string, sinceISO: string): AnalyticsSnapshot;
+  listRecommendationStates(userId: string): AnalyticsRecommendationRecord[];
+  /** Inserts a pending row only if this id doesn't already exist (never overwrites applied/dismissed). */
+  ensureRecommendation(
+    userId: string,
+    id: string,
+    fields: { type: string; subjectType: string; subjectId: string; payload: string }
+  ): void;
+  setRecommendationStatus(id: string, status: AnalyticsRecommendationStatus): AnalyticsRecommendationRecord | null;
+}
+
+export interface AnalyticsSnapshot {
+  reminders: Reminder[];
+  occurrences: ReminderOccurrence[];
+  notifications: import("@/types/reminder").NotificationLogEntry[];
+  history: ReminderHistoryEntry[];
+  paymentCycles: PaymentCycle[];
+  automationRuns: (AutomationRunRecord & { trigger_type: string; automation_name: string })[];
+  proactiveNotifications: ProactiveNotificationRecord[];
 }
 
 export interface ReminderFilter {
