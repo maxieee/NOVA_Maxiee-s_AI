@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -11,6 +11,19 @@ import os from "os";
  */
 describe("Assistant execution pipeline", () => {
   const dbPaths: string[] = [];
+
+  // One-time warm-up before any scratch DB path is set — see the identical
+  // comment in tests/payment-integration.test.ts for why. lib/assistant/pipeline
+  // pulls in an even larger module graph (parser, validate, resolveEntity,
+  // executeIntent, respond, context, plus lib/db and the scheduling modules
+  // executeIntent reuses), so its first-ever import is the most expensive
+  // one in the whole suite. Paying that cost here — never touching any
+  // file, since lib/db opens its connection lazily on first method call —
+  // keeps it out of the first test's 5s testTimeout budget.
+  beforeAll(async () => {
+    await import("../lib/db");
+    await import("../lib/assistant/pipeline");
+  });
 
   beforeEach(() => {
     vi.resetModules();

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -12,6 +12,28 @@ import os from "os";
  */
 describe("Payment Intelligence — reuses the existing engine, idempotently", () => {
   const dbPaths: string[] = [];
+
+  // One-time warm-up, BEFORE any scratch DB path is set. This module graph
+  // (lib/db + the scheduling modules it pulls in transitively) is large,
+  // and on a slower machine the first-ever TypeScript transform + native
+  // better-sqlite3 addon load can itself take several seconds — a real,
+  // reproducible cost confirmed by this file's own timings (the first `it`
+  // took ~1.3s while every other test in the same run took under 50ms,
+  // since transform output and the loaded native addon are cached process-
+  // wide and vi.resetModules() only forces cheap re-execution, not a
+  // re-transform or addon reload). Paying that cost here, inside Vitest's
+  // larger hookTimeout (10s by default, vs. testTimeout's 5s), instead of
+  // inside the first test's own budget, is what actually fixes the
+  // intermittent timeout — not a bigger testTimeout. This never touches
+  // any file: lib/db's getDb() opens its SQLite connection lazily on the
+  // first real DataLayer method call, not at import time, and no
+  // NOVA_SQLITE_PATH is set yet at this point.
+  beforeAll(async () => {
+    await import("../lib/db");
+    await import("../lib/scheduling/paymentCycles");
+    await import("../lib/scheduling/paymentReminders");
+    await import("../lib/scheduling/dueScan");
+  });
 
   beforeEach(() => {
     vi.resetModules();
