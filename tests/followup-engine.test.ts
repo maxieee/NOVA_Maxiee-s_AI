@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { decideFollowUp } from "@/lib/notifications/escalation";
-import { FOLLOW_UP_INTERVAL_MINUTES, ESCALATE_AFTER_REPEATS } from "@/lib/notifications/followUpConfig";
+import {
+  FOLLOW_UP_INTERVAL_MINUTES,
+  ESCALATE_AFTER_REPEATS,
+  escalateAfterFor,
+} from "@/lib/notifications/followUpConfig";
 import type { FollowUpState } from "@/types/reminder";
 
 const BASE_NOW = new Date("2026-01-01T12:00:00.000Z");
@@ -299,5 +303,136 @@ describe("occurrence follow-up state via the real DataLayer + dueScan", () => {
     const notifiedEntry = history.find((h) => h.action === "notified");
     expect(notifiedEntry).toBeTruthy();
     expect(notifiedEntry!.detail).toContain("not_configured");
+  });
+});
+
+describe("V3.1 — user-configurable escalation_threshold_repeats", () => {
+  it("escalateAfterFor falls back to the intensity default when no override is given", () => {
+    expect(escalateAfterFor("normal", undefined)).toBe(ESCALATE_AFTER_REPEATS.normal);
+    expect(escalateAfterFor("persistent", null)).toBe(ESCALATE_AFTER_REPEATS.persistent);
+  });
+
+  it("escalateAfterFor rejects invalid overrides (0, negative, NaN, non-integer) and falls back safely", () => {
+    expect(escalateAfterFor("normal", 0)).toBe(ESCALATE_AFTER_REPEATS.normal);
+    expect(escalateAfterFor("normal", -1)).toBe(ESCALATE_AFTER_REPEATS.normal);
+    expect(escalateAfterFor("normal", Number.NaN)).toBe(ESCALATE_AFTER_REPEATS.normal);
+    expect(escalateAfterFor("normal", 2.5)).toBe(ESCALATE_AFTER_REPEATS.normal);
+  });
+
+  it("gentle never escalates, even with a user override", () => {
+    expect(escalateAfterFor("gentle", 1)).toBe(Infinity);
+  });
+
+  it("a user threshold of 1 causes NOVA to escalate on the very first repeat", () => {
+    const decision = decideFollowUp(
+      baseInput({
+        followUpState: "notified",
+        requestedChannels: ["push", "call"],
+        configuredChannels: ["push", "call"],
+        notificationAttemptCount: 1, // this send is the 1st repeat (2nd attempt overall)
+        lastNotifiedAt: new Date(BASE_NOW.getTime() - (FOLLOW_UP_INTERVAL_MINUTES.normal + 1) * 60_000).toISOString(),
+        nextFollowUpAt: new Date(BASE_NOW.getTime() - 60_000).toISOString(),
+        escalateAfterOverride: 1,
+      })
+    );
+    expect(decision).toEqual({ type: "send", channel: "call", escalated: true, isFirst: false });
+  });
+
+  it("a user threshold of 3 delays escalation until the 3rd repeat, staying on push before that", () => {
+    const notDueYet = decideFollowUp(
+      baseInput({
+        followUpState: "notified",
+        requestedChannels: ["push", "call"],
+        configuredChannels: ["push", "call"],
+        notificationAttemptCount: 1, // repeat #2 of 3 needed
+        lastNotifiedAt: new Date(BASE_NOW.getTime() - (FOLLOW_UP_INTERVAL_MINUTES.normal + 1) * 60_000).toISOString(),
+        nextFollowUpAt: new Date(BASE_NOW.getTime() - 60_000).toISOString(),
+        escalateAfterOverride: 3,
+      })
+    );
+    expect(notDueYet).toEqual({ type: "send", channel: "push", escalated: false, isFirst: false });
+
+    const escalatesNow = decideFollowUp(
+      baseInput({
+        followUpState: "follow_up_sent",
+        requestedChannels: ["push", "call"],
+        configuredChannels: ["push", "call"],
+        notificationAttemptCount: 2, // this send is repeat #3
+        lastNotifiedAt: new Date(BASE_NOW.getTime() - (FOLLOW_UP_INTERVAL_MINUTES.normal + 1) * 60_000).toISOString(),
+        nextFollowUpAt: new Date(BASE_NOW.getTime() - 60_000).toISOString(),
+        escalateAfterOverride: 3,
+      })
+    );
+    expect(escalatesNow).toEqual({ type: "send", channel: "call", escalated: true, isFirst: false });
+  });
+
+  it("an invalid user threshold (0) falls back to the intensity default instead of escalating immediately", () => {
+    const decision = decideFollowUp(
+      baseInput({
+        followUpState: "notified",
+        requestedChannels: ["push", "call"],
+        configuredChannels: ["push", "call"],
+        notificationAttemptCount: 1, // would escalate immediately if threshold=0 were honored
+        lastNotifiedAt: new Date(BASE_NOW.getTime() - (FOLLOW_UP_INTERVAL_MINUTES.normal + 1) * 60_000).toISOString(),
+        nextFollowUpAt: new Date(BASE_NOW.getTime() - 60_000).toISOString(),
+        escalateAfterOverride: 0,
+      })
+    );
+    // Falls back to ESCALATE_AFTER_REPEATS.normal (3), so repeat #2 should not escalate yet.
+    expect(decision).toEqual({ type: "send", channel: "push", escalated: false, isFirst: false });
+  });
+
+  it("max_follow_up_attempts (a separate control) still stops the sequence independent of the escalation threshold", () => {
+    const decision = decideFollowUp(
+      baseInput({
+        followUpState: "follow_up_sent",
+        requestedChannels: ["push", "call"],
+        configuredChannels: ["push", "call"],
+        notificationAttemptCount: 5,
+        lastNotifiedAt: new Date(BASE_NOW.getTime() - (FOLLOW_UP_INTERVAL_MINUTES.normal + 1) * 60_000).toISOString(),
+        nextFollowUpAt: new Date(BASE_NOW.getTime() - 60_000).toISOString(),
+        escalateAfterOverride: 1, // would escalate immediately...
+        maxAttempts: 5, // ...but the attempt ceiling was already reached first
+      })
+    );
+    expect(decision).toEqual({ type: "stop", reason: "max_attempts_reached" });
+  });
+
+  it("a completed occurrence never escalates regardless of threshold", () => {
+    const decision = decideFollowUp(
+      baseInput({
+        followUpState: "completed",
+        notificationAttemptCount: 5,
+        escalateAfterOverride: 1,
+      })
+    );
+    expect(decision).toEqual({ type: "no_op", reason: "completed" });
+  });
+
+  it("a cancelled occurrence never escalates regardless of threshold", () => {
+    const decision = decideFollowUp(
+      baseInput({
+        followUpState: "cancelled",
+        notificationAttemptCount: 5,
+        escalateAfterOverride: 1,
+      })
+    );
+    expect(decision).toEqual({ type: "no_op", reason: "cancelled" });
+  });
+
+  it("a low threshold never fakes escalation to an unconfigured channel — stays on push honestly", () => {
+    const decision = decideFollowUp(
+      baseInput({
+        followUpState: "notified",
+        requestedChannels: ["push", "call"],
+        configuredChannels: ["push"], // call requested but not configured
+        notificationAttemptCount: 1,
+        lastNotifiedAt: new Date(BASE_NOW.getTime() - (FOLLOW_UP_INTERVAL_MINUTES.normal + 1) * 60_000).toISOString(),
+        nextFollowUpAt: new Date(BASE_NOW.getTime() - 60_000).toISOString(),
+        escalateAfterOverride: 1,
+      })
+    );
+    expect(decision.type).toBe("send");
+    if (decision.type === "send") expect(decision.channel).toBe("push");
   });
 });

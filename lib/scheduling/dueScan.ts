@@ -71,6 +71,7 @@ export async function scanAndProcessDueReminders(now: Date = new Date()): Promis
       notificationAttemptCount: occ.notification_attempt_count,
       escalationLevel: occ.escalation_level,
       maxAttempts: preferences.max_follow_up_attempts,
+      escalateAfterOverride: preferences.escalation_threshold_repeats,
     });
 
     if (decision.type === "no_op") {

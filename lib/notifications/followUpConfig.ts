@@ -92,3 +92,21 @@ export function maxAttemptsFor(intensity: ReminderIntensity, userMax?: number): 
   if (intensity === "gentle") return Math.min(ceiling, GENTLE_MAX_FOLLOW_UPS + 1); // + the initial send
   return ceiling;
 }
+
+/** True only for a positive integer — rejects 0, negatives, NaN, and non-integers. */
+function isValidThreshold(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+/**
+ * Per-user override for ESCALATE_AFTER_REPEATS, from
+ * user_preferences.escalation_threshold_repeats. Invalid/missing values
+ * (0, negative, NaN, non-integer, undefined/null) fall back to the
+ * existing per-intensity default untouched. "gentle" never escalates on
+ * its own — a user override cannot change that, matching the existing
+ * ESCALATE_AFTER_REPEATS.gentle = Infinity semantics.
+ */
+export function escalateAfterFor(intensity: ReminderIntensity, userThreshold?: number | null): number {
+  if (intensity === "gentle") return Infinity;
+  return isValidThreshold(userThreshold) ? userThreshold : ESCALATE_AFTER_REPEATS[intensity];
+}

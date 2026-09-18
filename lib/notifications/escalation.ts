@@ -3,6 +3,7 @@ import {
   FOLLOW_UP_INTERVAL_MINUTES,
   ESCALATE_AFTER_REPEATS as CONFIG_ESCALATE_AFTER_REPEATS,
   maxAttemptsFor,
+  escalateAfterFor,
 } from "./followUpConfig";
 
 /**
@@ -28,6 +29,8 @@ export interface EscalationInput {
   elapsedMinutes: number;
   acknowledged: boolean;
   repeatCount: number;
+  /** Per-user override for how many repeats occur before escalating; falls back to the intensity default when absent/invalid. */
+  escalateAfterOverride?: number | null;
 }
 
 /**
@@ -61,7 +64,8 @@ export function decideEscalation(input: EscalationInput): EscalationAction {
     return { type: "stop", reason: "no_channels_available" };
   }
 
-  const shouldEscalate = input.repeatCount + 1 >= ESCALATE_AFTER_REPEATS[input.intensity];
+  const escalateAfter = escalateAfterFor(input.intensity, input.escalateAfterOverride);
+  const shouldEscalate = input.repeatCount + 1 >= escalateAfter;
 
   if (shouldEscalate && available.includes("call")) {
     return { type: "notify", channel: "call", escalated: true };
@@ -93,6 +97,7 @@ export interface FollowUpDecisionInput {
   notificationAttemptCount: number;
   escalationLevel: number;
   maxAttempts?: number; // per-user override; falls back to config default
+  escalateAfterOverride?: number | null; // per-user override; falls back to config default
 }
 
 export type FollowUpDecision =
@@ -132,6 +137,7 @@ export function decideFollowUp(input: FollowUpDecisionInput): FollowUpDecision {
     elapsedMinutes: input.notificationAttemptCount === 0 ? Number.POSITIVE_INFINITY : elapsedMinutes,
     acknowledged: false,
     repeatCount: input.notificationAttemptCount,
+    escalateAfterOverride: input.escalateAfterOverride,
   });
 
   if (action.type === "wait") return { type: "no_op", reason: "waiting" };

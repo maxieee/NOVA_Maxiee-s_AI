@@ -220,6 +220,9 @@ export function PersonalizationForm({ preferences }: { preferences: UserPreferen
             value={form.escalation_threshold_repeats}
             onChange={(e) => set("escalation_threshold_repeats", parseInt(e.target.value, 10) || 3)}
           />
+          <span className="mt-1 block text-xs text-nova-muted">
+            Escalate after this many unacknowledged follow-ups (Gentle reminders never escalate).
+          </span>
         </label>
       </div>
 
