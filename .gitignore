@@ -33,6 +33,12 @@ yarn-error.log*
 /database/*.sqlite-wal
 /database/*.db
 
+# scratch sqlite files from repo-root e2e/verification scripts (scripts/*.ts)
+/*.sqlite
+/*.sqlite-shm
+/*.sqlite-wal
+/*.sqlite3
+
 # vercel
 .vercel
 
