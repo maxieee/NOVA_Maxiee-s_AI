@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { derivePaymentCycleStatus } from "@/lib/scheduling/paymentCycles";
 
 describe("derivePaymentCycleStatus — pure derivation from due_date vs now", () => {
@@ -35,7 +36,9 @@ describe("payment_accounts / payment_cycles — DataLayer + cycle generation", (
   // NOVA_SQLITE_PATH at a brand-new scratch file before importing "../lib/db".
   beforeEach(() => {
     vi.resetModules();
-    const dbPath = path.join(process.cwd(), `test-payment-cycles-${Date.now()}-${Math.random()}.sqlite`);
+    // OS temp dir, not process.cwd() — see payment-integration.test.ts for why
+    // (cwd can be inside a cloud-synced folder like OneDrive on Windows).
+    const dbPath = path.join(os.tmpdir(), `nova-payment-cycles-test-${Date.now()}-${Math.random()}.sqlite`);
     dbPaths.push(dbPath);
     process.env.NOVA_SQLITE_PATH = dbPath;
     process.env.NOVA_DATA_SOURCE = "local";

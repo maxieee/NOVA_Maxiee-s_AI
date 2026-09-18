@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import fs from "fs";
 import path from "path";
+import os from "os";
 
 /**
  * Integration coverage for V5 Payment Intelligence: proves a payment
@@ -14,7 +15,11 @@ describe("Payment Intelligence — reuses the existing engine, idempotently", ()
 
   beforeEach(() => {
     vi.resetModules();
-    const dbPath = path.join(process.cwd(), `test-payment-integration-${Date.now()}-${Math.random()}.sqlite`);
+    // Use the OS temp dir (not process.cwd()) — the repo root can be inside a
+    // cloud-synced folder (e.g. OneDrive on Windows), where real-time sync/AV
+    // scanning of newly created SQLite (+ WAL/SHM) files can slow file I/O
+    // enough to blow past the test timeout. os.tmpdir() is never synced.
+    const dbPath = path.join(os.tmpdir(), `nova-payment-integration-test-${Date.now()}-${Math.random()}.sqlite`);
     dbPaths.push(dbPath);
     process.env.NOVA_SQLITE_PATH = dbPath;
     process.env.NOVA_DATA_SOURCE = "local";
