@@ -61,6 +61,65 @@ describe("assistant parser — CREATE_REMINDER", () => {
   });
 });
 
+describe("assistant parser — title normalization (regression: connector word leftover)", () => {
+  // Bug: "Remind me to submit my report tomorrow at 10 AM." produced the
+  // title "submit my report at" — the trailing "." blocked the old
+  // single-pass "ends with 'at'" strip from ever matching.
+  it("strips a trailing 'at' left over after removing date/time fragments, even with trailing punctuation", () => {
+    const r = parse("Remind me to submit my report tomorrow at 10 AM.", NOW);
+    expect(r.kind).toBe("INTENT");
+    if (r.kind !== "INTENT" || r.intent.type !== "CREATE_REMINDER") throw new Error("wrong shape");
+    expect(r.intent.title).toBe("submit my report");
+    expect(r.intent.when.date).toBe("2026-09-19");
+    expect(r.intent.when.time).toBe("10:00");
+  });
+
+  it("strips a trailing 'at' with no punctuation too", () => {
+    const r = parse("Remind me to call Arun tomorrow at 6 PM", NOW);
+    expect(r.kind).toBe("INTENT");
+    if (r.kind !== "INTENT" || r.intent.type !== "CREATE_REMINDER") throw new Error("wrong shape");
+    expect(r.intent.title).toBe("call Arun");
+  });
+
+  it("strips 'at <time>' with no preceding date word", () => {
+    const r = parse("Remind me to check the dashboard at 9 AM.", NOW);
+    expect(r.kind).toBe("INTENT");
+    if (r.kind !== "INTENT" || r.intent.type !== "CREATE_REMINDER") throw new Error("wrong shape");
+    expect(r.intent.title).toBe("check the dashboard");
+  });
+
+  it("recognizes a bare hour with no am/pm after 'at' and strips it from the title", () => {
+    const r = parse("Remind me to submit the report at 10.", NOW);
+    expect(r.kind).toBe("INTENT");
+    if (r.kind !== "INTENT" || r.intent.type !== "CREATE_REMINDER") throw new Error("wrong shape");
+    expect(r.intent.title).toBe("submit the report");
+  });
+
+  it("handles schedule-before-action phrasing: 'remind me <when> to <action>'", () => {
+    const r = parse("Remind me tomorrow at 10 AM to submit my report.", NOW);
+    expect(r.kind).toBe("INTENT");
+    if (r.kind !== "INTENT" || r.intent.type !== "CREATE_REMINDER") throw new Error("wrong shape");
+    expect(r.intent.title).toBe("submit my report");
+    expect(r.intent.when.date).toBe("2026-09-19");
+    expect(r.intent.when.time).toBe("10:00");
+  });
+
+  it("preserves an 'at' that is genuinely part of the title's content", () => {
+    const r = parse("Remind me to meet Arun at the office tomorrow at 10 AM.", NOW);
+    expect(r.kind).toBe("INTENT");
+    if (r.kind !== "INTENT" || r.intent.type !== "CREATE_REMINDER") throw new Error("wrong shape");
+    expect(r.intent.title).toBe("meet Arun at the office");
+  });
+
+  it("preserves a title containing 'at' when there is no date/time at all (asks for clarification instead)", () => {
+    const r = parse("Remind me to meet Arun at the office", NOW);
+    expect(r.kind).toBe("NEEDS_CLARIFICATION");
+    if (r.kind === "NEEDS_CLARIFICATION") {
+      expect(r.question).toContain("meet Arun at the office");
+    }
+  });
+});
+
 describe("assistant parser — recurrence", () => {
   it("maps 'every Monday' onto the existing weekly+by_weekday shape", () => {
     const r = parse("remind me to take out recycling every Monday at 8am", NOW);

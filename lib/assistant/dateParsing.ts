@@ -90,6 +90,15 @@ function extractTime(text: string): TimeMatch | null {
   if (m24) {
     return { hour: parseInt(m24[1], 10), minute: parseInt(m24[2], 10), raw: m24[0] };
   }
+  // Bare hour with no am/pm or colon, e.g. "at 10." — only recognized right
+  // after "at" so a stray number elsewhere in the title (e.g. "buy 2 eggs")
+  // is never mistaken for a time. Includes "at" in the matched fragment
+  // (unlike the two cases above) since there's no separate connector word
+  // for cleanTitle to strip afterwards.
+  const bare = text.match(/\bat\s+([01]?\d|2[0-3])\b(?!\s*(?::|am|pm))/i);
+  if (bare) {
+    return { hour: parseInt(bare[1], 10), minute: 0, raw: bare[0] };
+  }
   return null;
 }
 

@@ -37,18 +37,44 @@ function detectReminderTypes(text: string): ReminderTypeKey[] {
   return found.length > 0 ? found : ["general"];
 }
 
-/** Strips date/time/recurrence fragments and boilerplate verbs out of a raw phrase to recover the title. */
+/**
+ * Strips date/time/recurrence fragments and boilerplate connector words out
+ * of a raw phrase to recover the title.
+ *
+ * This has to loop rather than do a single pass, for two reasons found by
+ * real usage:
+ *  1. Trailing punctuation (the sentence's own "." or ",") can sit *after*
+ *     a leftover connector word like "at", which blocks a single "ends
+ *     with 'at'" check from matching until the punctuation is stripped
+ *     first — e.g. "submit my report tomorrow at 10 AM." leaves
+ *     "submit my report  at ." after fragment removal, and only a second
+ *     pass (punctuation gone, "at" now truly trailing) removes the "at".
+ *  2. Schedule-before-action phrasing ("remind me tomorrow at 10 AM to
+ *     submit the report") leaves date/time fragments removed from the
+ *     FRONT of the body, exposing a leading "at to" before the real title
+ *     — stripping "at" exposes "to", which needs its own pass to remove.
+ * Connector words are only ever stripped from the string's extremities
+ * (^ or $), never from the interior, so genuine content like "meet Arun
+ * at the office" keeps its "at" intact.
+ */
 function cleanTitle(raw: string, fragments: string[]): string {
   let title = raw;
   for (const frag of fragments) {
-    title = title.replace(new RegExp(escapeRegExp(frag), "i"), "");
+    title = title.replace(new RegExp(escapeRegExp(frag), "i"), " ");
   }
-  title = title
-    .replace(/\bevery\s+[a-z0-9 ]+$/i, "")
-    .replace(/\b(at|on|by|for|in)\s*$/i, "")
-    .replace(/\s{2,}/g, " ")
-    .trim()
-    .replace(/^[,.\s]+|[,.\s]+$/g, "");
+  let prev: string;
+  do {
+    prev = title;
+    title = title
+      .replace(/\bevery\s+[a-z0-9 ]+$/i, "")
+      .trim()
+      .replace(/^[,.\s]+|[,.\s]+$/g, "")
+      .replace(/^(?:to|at|on|by|for|in)\b\s*/i, "")
+      .replace(/\s*\b(?:to|at|on|by|for|in)$/i, "")
+      .trim()
+      .replace(/^[,.\s]+|[,.\s]+$/g, "")
+      .replace(/\s{2,}/g, " ");
+  } while (title !== prev);
   return title;
 }
 
@@ -172,7 +198,11 @@ export function parse(input: string, now: Date, context: ParserContext = {}): Pa
   }
 
   // --- Create reminder ------------------------------------------------
-  const createMatch = text.match(/remind\s+me\s+to\s+(.+)/i);
+  // "to" is optional right after "me" so schedule-before-action phrasing
+  // ("remind me tomorrow at 10 AM to submit the report") is captured too —
+  // cleanTitle below is responsible for stripping the leading "at to"
+  // that leaves in the body once its date/time fragment is removed.
+  const createMatch = text.match(/remind\s+me\s+(?:to\s+)?(.+)/i);
   if (createMatch) {
     const body = createMatch[1];
     const recurrence = extractRecurrence(body);
