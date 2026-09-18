@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { compareSecret } from "@/lib/auth/compareSecret";
 import { scanAndProcessDueReminders } from "@/lib/scheduling/dueScan";
 import { generateMissingCycles, refreshCycleStatuses } from "@/lib/scheduling/paymentCycles";
 import { generateMissingReminders } from "@/lib/scheduling/paymentReminders";
@@ -17,9 +18,16 @@ export async function POST(req: NextRequest) {
   if (secret) {
     // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`; local/manual
     // invocations (curl, npm run dev:cron) use the simpler x-cron-secret header.
+    //
+    // This route is exempt from the app-wide middleware.ts auth gate (see
+    // its comment) and guards itself here with CRON_SECRET specifically.
+    // APP_ACCESS_TOKEN is a *different* secret for a *different* trust
+    // boundary (the app's one human user vs. Vercel's cron scheduler) and
+    // must never be accepted as a substitute here — this check only ever
+    // compares against process.env.CRON_SECRET, never APP_ACCESS_TOKEN.
     const authHeader = req.headers.get("authorization");
-    const provided = req.headers.get("x-cron-secret") ?? authHeader?.replace(/^Bearer\s+/i, "");
-    if (provided !== secret) {
+    const provided = req.headers.get("x-cron-secret") ?? authHeader?.replace(/^Bearer\s+/i, "") ?? null;
+    if (!compareSecret(provided, secret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }

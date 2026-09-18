@@ -948,3 +948,71 @@ explicit apply → confirmed mutation).
   full statistical model — appropriate for a single user's own small,
   real dataset, and it says so in the recommendation text rather than
   overstating confidence.
+
+## Phase 2: API Authentication
+
+Every route under `app/api/*` was completely unauthenticated (production
+audit finding). Phase 2 adds a single-user access-control layer in front
+of them — no multi-user auth system, no user database, matching NOVA's
+existing single-user-app principle.
+
+### Model
+
+One shared secret, `APP_ACCESS_TOKEN`, checked by `middleware.ts` for
+every `/api/*` request via a timing-safe comparison
+(`lib/auth/compareSecret.ts`, SHA-256-then-`crypto.timingSafeEqual`).
+
+The frontend calls its own API same-origin with plain `fetch()` (confirmed
+by inspection: `ChatPanel`, the Settings forms, `PaymentActions`,
+`ReminderActions`, `AutomationsManager`, etc.), and `public/sw.js` does the
+same for its notification-action buttons ("Done"/"Snooze"). Same-origin
+fetches — including from a service worker — send cookies automatically,
+so authentication is an **httpOnly session cookie**, not a token stored in
+`localStorage` or attached by client JS:
+
+1. Visit `/login` and enter `APP_ACCESS_TOKEN` once.
+2. That posts to `POST /api/auth/login`, which checks the token and, on
+   success, sets an httpOnly, `sameSite=lax` cookie (`nova_session`).
+3. Every subsequent same-origin request — from any page, any client
+   component's `fetch()`, and the service worker's own fetches — carries
+   that cookie automatically. Nothing in `sw.js` or any component needed
+   to change.
+4. `POST /api/auth/logout` clears the cookie.
+
+A bearer header (`Authorization: Bearer <APP_ACCESS_TOKEN>`) also works on
+every protected route, for curl/scripts/manual API use.
+
+### Unauthenticated-by-design exceptions (exactly three)
+
+- **`/api/cron/*`** — guarded by its own, separate `CRON_SECRET` check
+  inside the route handler (unchanged in spirit, just upgraded to the same
+  timing-safe comparison). Vercel's cron scheduler cannot present
+  `APP_ACCESS_TOKEN` or the session cookie, so this path is exempted from
+  the middleware token check entirely and relies on its own guard.
+  `APP_ACCESS_TOKEN` is never accepted here, and `CRON_SECRET` is never
+  accepted on any ordinary route — two separate secrets for two separate
+  trust boundaries (Vercel vs. you).
+- **`/api/integrations/google/callback`** — Google's own redirect back to
+  this app is an unauthenticated GET from Google's servers; it cannot
+  carry a bearer header or our cookie. It remains protected by its
+  existing state-cookie CSRF check (`nova_google_oauth_state`, httpOnly,
+  single-use, 10-minute TTL, set only by our own `/connect` redirect) —
+  sufficient on its own, since an attacker cannot forge this request
+  without first obtaining that value. `/connect` itself is **not**
+  exempted: it's a normal same-origin browser navigation, so the session
+  cookie is sent automatically, and only the authenticated user can
+  initiate linking their Google account.
+- **`/api/auth/login`** — has to be reachable before a session exists; it
+  is itself gated on `APP_ACCESS_TOKEN` inside the handler.
+
+### Notes
+
+- 401 responses are generic (`{"error":"Unauthorized"}`) and never
+  distinguish missing vs. wrong token, echo the compared value, or include
+  a stack trace.
+- No CORS configuration was added: this is a same-origin PWA with no other
+  client origins, so the browser's default same-origin policy is already
+  the desired behavior.
+- SSR page routes (`/`, `/today`, etc.) are out of this phase's scope,
+  which the audit and this work focus on the API layer; see "Known
+  limitations" in the Phase 2 handoff notes.
