@@ -548,3 +548,115 @@ npx tsx scripts/verify-assistant-e2e.ts           # scratch-DB, real end-to-end 
   ask for clarification instead.
 - Conversation context is single-process, in-memory, and does not survive
   a server restart (by design — see above).
+
+## V10 — Voice Assistant
+
+A client-side voice layer sitting entirely on top of the V7 text
+pipeline. **There is no separate voice intent engine.** Speech-to-text
+produces a plain transcript string, and that string is handed to the
+exact same `handleAssistantMessage()` function (via the same
+`POST /api/assistant/message` route) that typed text already uses — see
+`tests/voice-pipeline.test.ts` for a test that proves a transcript and
+the identical typed text produce the same reply.
+
+### Why the Web Speech API, not a paid STT/TTS service
+
+The brief calls for zero external LLM/speech-API dependency, and the
+browser's built-in `SpeechRecognition`/`webkitSpeechRecognition` (speech-
+to-text) and `SpeechSynthesis` (text-to-speech) satisfy that: no API key,
+no server-side audio processing, no new npm dependency, and no added
+hosting cost — the browser does the work. A paid STT/TTS service (e.g.
+Whisper API, ElevenLabs) was not used; nothing about this app's transcript
+accuracy needs exceeded what the Web Speech API already provides, and
+adding one would have contradicted the "zero-dependency" brief for no
+concrete benefit.
+
+### How it works
+
+- `hooks/useVoiceAssistant.ts` — feature-detects
+  `window.SpeechRecognition || window.webkitSpeechRecognition` and
+  `window.speechSynthesis`, and exposes an honest status model modeled
+  directly on `hooks/usePushNotifications.ts`'s status states:
+  `unsupported | idle | requesting_permission | listening | processing |
+  speaking | error`, plus the real `SpeechRecognition` `onerror` code
+  mapped to one of `not-allowed | no-speech | network | audio-capture |
+  aborted | unknown`, each with its own distinct, honest message (never
+  one generic failure string).
+- `components/assistant/ChatPanel.tsx` — adds a press-to-talk mic button
+  next to the existing text input and send button. Tapping it starts
+  `SpeechRecognition` (browser asks for mic permission the first time);
+  tapping again (or `SpeechRecognition`'s own silence-detection via
+  `onend`) stops it. The interim (in-progress) transcript is shown live in
+  the chat list so the user always sees what NOVA is hearing; the final
+  transcript is posted as an ordinary "YOU" chat message and sent through
+  `sendText()` — the same function the typed-input Enter/Send path calls.
+  If the browser has no `SpeechRecognition` at all, the mic button is not
+  rendered and a one-line note explains that voice input isn't supported
+  there, rather than showing a non-functional control.
+- A "Speak replies" checkbox (off by default) gates text-to-speech via
+  `speechSynthesis.speak()`. It only reads out replies when explicitly
+  enabled — turning it on is a same-session, explicit opt-in so nothing
+  is ever spoken aloud by surprise, whether the triggering message was
+  typed or spoken.
+- The mic never claims to be "always listening": it is only active
+  between an explicit tap-to-start and either a tap-to-stop, browser-
+  detected end of speech, or an error. There is no background/hands-free
+  listening mode.
+
+### Browser support (stated honestly, not over-promised)
+
+- **Good**: Chrome, Edge, and Android Chrome implement both
+  `SpeechRecognition` and `SpeechSynthesis` reliably.
+- **Partial/inconsistent**: Safari and iOS Safari have historically had
+  version-gated, less consistent `SpeechRecognition` support. On any
+  browser where it's unavailable, the UI degrades to text-only
+  automatically (see feature detection above) — voice is never assumed to
+  work.
+- Some browsers' `SpeechRecognition` implementation streams audio to a
+  vendor's remote recognition service even though the JS API itself is
+  client-side and needs no API key from this app — that's why a
+  `"network"` error case exists and is surfaced honestly rather than
+  treated as a bug in this app.
+- `SpeechRecognition`/microphone access requires a **secure context**
+  (HTTPS, or `localhost` in dev). Vercel serves production over HTTPS by
+  default, so no extra configuration is needed there.
+- The mic button is a standard touch-target-sized button placed inline
+  with the existing text input/send button, and does not overlap the
+  bottom nav on mobile.
+
+### Testing
+
+Real microphone capture and actual `SpeechRecognition`/`SpeechSynthesis`
+browser behavior cannot be exercised in this Node/vitest test
+environment — there is no real browser, audio device, or speech service
+to drive headlessly. What **is** tested deterministically:
+
+```bash
+npx vitest run tests/voice-pipeline.test.ts
+```
+
+- That a transcript string, once obtained, is handled identically to the
+  same string typed — by calling `handleAssistantMessage()` directly and
+  asserting on the resulting reply/persisted state (same pattern as
+  `tests/assistant-execution.test.ts`, same `os.tmpdir()` scratch-DB and
+  `beforeAll` pre-warm conventions).
+- Pure status-derivation and error-mapping logic in
+  `hooks/useVoiceAssistant.ts` (`deriveSupport`, `errorReasonFromCode`,
+  `errorMessageFor`) against mocked constructors/error codes — not a
+  simulated browser environment.
+
+Manual verification of the mic button, permission prompts, and actual
+voice capture requires a real browser and was not automatable here; the
+`/assistant` page was confirmed to build and render (with the mic control
+correctly hidden/absent in this headless environment, since it has no
+`SpeechRecognition`) via `npm run build`.
+
+### Known limitations
+
+- No offline speech recognition — `SpeechRecognition` in browsers that use
+  a remote recognition service requires network connectivity, and this is
+  outside this app's control.
+- No hands-free/"wake word" listening — by design, per the brief's
+  constraint against ever claiming background microphone capability.
+- Voice reply quality/voice selection is whatever `SpeechSynthesis` offers
+  in the browser/OS; NOVA does not bundle its own TTS voice.
