@@ -166,6 +166,21 @@ export function ensureSchema(db: Database.Database) {
     );
 
     create index if not exists idx_history_reminder on reminder_history(reminder_id);
+
+    create table if not exists push_subscriptions (
+      id text primary key,
+      user_id text not null references users(id) on delete cascade,
+      endpoint text not null unique,
+      p256dh text not null,
+      auth text not null,
+      active integer not null default 1,
+      failure_count integer not null default 0,
+      last_failure_at text,
+      created_at text not null default (datetime('now')),
+      updated_at text not null default (datetime('now'))
+    );
+
+    create index if not exists idx_push_subscriptions_user on push_subscriptions(user_id);
   `);
 
   migrateAddColumns(db);

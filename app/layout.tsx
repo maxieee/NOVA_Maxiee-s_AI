@@ -3,6 +3,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { MobileHeader } from "@/components/layout/MobileHeader";
+import { ServiceWorkerRegistration } from "@/components/pwa/ServiceWorkerRegistration";
 
 export const metadata: Metadata = {
   title: "NOVA — Your Personal Assistant",
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" data-theme="dark">
       <body className="min-h-screen bg-nova-bg font-sans text-white antialiased">
+        <ServiceWorkerRegistration />
         <div className="flex min-h-screen">
           <Sidebar />
           <div className="flex min-h-screen flex-1 flex-col">

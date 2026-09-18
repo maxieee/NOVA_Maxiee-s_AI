@@ -9,6 +9,7 @@ import type {
   PersonalContextEntry,
   NotificationChannel,
   NotificationOutcome,
+  PushSubscriptionRecord,
 } from "@/types/reminder";
 
 /**
@@ -55,9 +56,18 @@ export interface DataLayer {
   listOccurrences(reminderId: string): ReminderOccurrence[];
   listUpcomingOccurrences(userId: string): (ReminderOccurrence & { reminder: Reminder })[];
   addOccurrence(reminderId: string, scheduledFor: string): ReminderOccurrence;
+  markOccurrenceNotified(occurrenceId: string, escalated: boolean): void;
 
   listHistory(reminderId: string): ReminderHistoryEntry[];
   addHistory(reminderId: string, action: ReminderHistoryEntry["action"], detail?: string): void;
+
+  upsertPushSubscription(
+    userId: string,
+    sub: { endpoint: string; p256dh: string; auth: string }
+  ): PushSubscriptionRecord;
+  listActivePushSubscriptions(userId: string): PushSubscriptionRecord[];
+  deactivatePushSubscription(endpoint: string): void;
+  recordPushFailure(endpoint: string): void;
 }
 
 export interface ReminderFilter {

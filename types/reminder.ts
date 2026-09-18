@@ -208,6 +208,19 @@ export type UserPreferencesUpdate = Partial<
 
 export type Urgency = "overdue" | "urgent" | "due_today" | "upcoming" | "completed";
 
+export interface PushSubscriptionRecord {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  active: boolean;
+  failure_count: number;
+  last_failure_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DashboardCounts {
   urgent: number;
   dueToday: number;

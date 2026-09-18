@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PersonalizationForm } from "@/components/settings/PersonalizationForm";
 import { PersonalAssistantMemory } from "@/components/settings/PersonalAssistantMemory";
+import { PushNotificationSettings } from "@/components/settings/PushNotificationSettings";
 import { isTwilioConfigured } from "@/lib/notifications/providers";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,10 @@ export default function SettingsPage() {
 
         <div className="md:col-span-2">
           <PersonalAssistantMemory entries={personalContext} />
+        </div>
+
+        <div className="md:col-span-2">
+          <PushNotificationSettings />
         </div>
 
         <div className="nova-card p-5 md:col-span-2">

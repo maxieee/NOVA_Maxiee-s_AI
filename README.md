@@ -153,7 +153,64 @@ call `POST /api/reminders/[id]/done` and `/snooze`, which update
 `reminder_occurrences` and `reminder_history`, and — for reminders with the
 Recurring type — reschedule a fresh occurrence via `computeNextOccurrence`.
 
-## Architecture Decisions
+## PWA & Push Notifications
+
+NOVA is an installable PWA (`app/manifest.ts` + `public/sw.js`) with real Web
+Push support — no fake "notifications enabled" state, no simulated sends.
+
+### Generate VAPID keys
+
+```
+npm run vapid:generate
+```
+
+Copy the printed `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, and
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` into `.env.local`. Until these are set, push
+reliably reports `not_configured` — the same honest pattern used for the
+Twilio call/SMS provider.
+
+### Enabling notifications locally
+
+1. `npm run dev`, open the app in a supported browser, go to **Settings**.
+2. Click **Enable Notifications** under "Push Notifications" — this requests
+   browser permission and creates a real `PushSubscription`, saved via
+   `POST /api/push/subscribe`.
+3. Click **Send Test Notification** to send a real push through
+   `POST /api/push/test` (uses `web-push`'s `sendNotification`, not a mock).
+
+### Local vs. production scheduling
+
+NOVA does **not** rely on a client-side `setTimeout`/interval as the source
+of truth for when reminders fire — that breaks the moment the tab is closed.
+Instead, `lib/scheduling/dueScan.ts` is a server-side scan that finds due,
+unacknowledged occurrences, runs them through the escalation engine
+(`lib/notifications/escalation.ts`), and dispatches real notifications.
+
+- **Local dev**: there is no built-in background timer. Trigger a scan
+  manually:
+  ```
+  npm run dev:cron
+  # equivalent to:
+  curl -X POST http://localhost:3000/api/cron/process-due-reminders \
+    -H "x-cron-secret: $CRON_SECRET"
+  ```
+- **Production**: configure a real scheduler to call the same route on an
+  interval. `vercel.json` already declares a Vercel Cron entry hitting
+  `/api/cron/process-due-reminders` every 5 minutes; Vercel Cron sends
+  `Authorization: Bearer <CRON_SECRET>`, which the route also accepts.
+
+### Browser compatibility
+
+- **Chrome, Edge, Firefox (desktop and Android)**: full Web Push support.
+- **Safari/iOS**: push requires the PWA to be **installed to the home
+  screen** first (Add to Home Screen) — Safari does not support Web Push for
+  regular browser tabs. iOS Web Push support has historically shipped later
+  and been more version-gated than other browsers; treat it as
+  best-effort, and always trust the in-app status indicator (it reflects
+  the real permission + subscription state, never an assumption) over any
+  claim that "it should work."
+
+
 
 - **Local-first data layer**: since no live Supabase credentials exist in
   this environment, the app ships with a fully functional SQLite

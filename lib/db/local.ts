@@ -21,6 +21,7 @@ import type {
   PersonalContextEntry,
   NotificationChannel,
   NotificationOutcome,
+  PushSubscriptionRecord,
 } from "@/types/reminder";
 import { seedIfEmpty } from "./seed-data";
 
@@ -584,6 +585,15 @@ class LocalDataLayer implements DataLayer {
     return db.prepare(`select * from reminder_occurrences where id = ?`).get(id) as ReminderOccurrence;
   }
 
+  markOccurrenceNotified(occurrenceId: string, escalated: boolean): void {
+    const db = getDb();
+    db.prepare(
+      `update reminder_occurrences
+       set status = 'fired', fired_at = ?, repeat_count = repeat_count + 1, escalated = ?
+       where id = ?`
+    ).run(new Date().toISOString(), escalated ? 1 : 0, occurrenceId);
+  }
+
   listHistory(reminderId: string): ReminderHistoryEntry[] {
     const db = getDb();
     return db
@@ -596,6 +606,64 @@ class LocalDataLayer implements DataLayer {
     db.prepare(
       `insert into reminder_history (id, reminder_id, action, detail, created_at) values (?, ?, ?, ?, ?)`
     ).run(newId(), reminderId, action, detail ?? null, new Date().toISOString());
+  }
+
+  upsertPushSubscription(
+    userId: string,
+    sub: { endpoint: string; p256dh: string; auth: string }
+  ): PushSubscriptionRecord {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const existing = db
+      .prepare(`select id from push_subscriptions where endpoint = ?`)
+      .get(sub.endpoint) as { id: string } | undefined;
+
+    if (existing) {
+      db.prepare(
+        `update push_subscriptions
+         set user_id = ?, p256dh = ?, auth = ?, active = 1, failure_count = 0,
+             last_failure_at = null, updated_at = ?
+         where id = ?`
+      ).run(userId, sub.p256dh, sub.auth, now, existing.id);
+      return this.rowToPushSubscription(
+        db.prepare(`select * from push_subscriptions where id = ?`).get(existing.id)
+      );
+    }
+
+    const id = newId();
+    db.prepare(
+      `insert into push_subscriptions (id, user_id, endpoint, p256dh, auth, active, failure_count, created_at, updated_at)
+       values (?, ?, ?, ?, ?, 1, 0, ?, ?)`
+    ).run(id, userId, sub.endpoint, sub.p256dh, sub.auth, now, now);
+    return this.rowToPushSubscription(db.prepare(`select * from push_subscriptions where id = ?`).get(id));
+  }
+
+  private rowToPushSubscription(row: any): PushSubscriptionRecord {
+    return { ...row, active: !!row.active };
+  }
+
+  listActivePushSubscriptions(userId: string): PushSubscriptionRecord[] {
+    const db = getDb();
+    const rows = db
+      .prepare(`select * from push_subscriptions where user_id = ? and active = 1`)
+      .all(userId) as any[];
+    return rows.map((r) => this.rowToPushSubscription(r));
+  }
+
+  deactivatePushSubscription(endpoint: string): void {
+    const db = getDb();
+    db.prepare(
+      `update push_subscriptions set active = 0, updated_at = ? where endpoint = ?`
+    ).run(new Date().toISOString(), endpoint);
+  }
+
+  recordPushFailure(endpoint: string): void {
+    const db = getDb();
+    db.prepare(
+      `update push_subscriptions
+       set failure_count = failure_count + 1, last_failure_at = ?, updated_at = ?
+       where endpoint = ?`
+    ).run(new Date().toISOString(), new Date().toISOString(), endpoint);
   }
 }
 
