@@ -56,15 +56,29 @@ describe("computeCompletionMetrics", () => {
 describe("computeSnoozeMetrics", () => {
   it("tallies snooze history per reminder and by resulting hour", () => {
     const reminders = [reminder({ id: "r1" })];
+    // No trailing "Z" here either: computeSnoozeMetrics compares this
+    // against scheduled_for's naive-local time via `.getTime()` to find the
+    // occurrence a snooze produced. Mixing an absolute-UTC created_at with
+    // a naive-local scheduled_for would make that `>=` comparison itself
+    // timezone-dependent (in production the server's own clock is always
+    // UTC, so this never surfaces there — but it would in a non-UTC test
+    // runner). Keeping both fixture values in the same naive convention
+    // makes the relative ordering correct regardless of the runner's TZ.
     const history: ReminderHistoryEntry[] = [
-      { id: "h1", reminder_id: "r1", action: "snoozed", detail: "15m", created_at: "2026-01-01T08:00:00.000Z" },
-      { id: "h2", reminder_id: "r1", action: "snoozed", detail: "15m", created_at: "2026-01-01T08:20:00.000Z" },
+      { id: "h1", reminder_id: "r1", action: "snoozed", detail: "15m", created_at: "2026-01-01T08:00:00.000" },
+      { id: "h2", reminder_id: "r1", action: "snoozed", detail: "15m", created_at: "2026-01-01T08:20:00.000" },
     ];
     const occurrences: ReminderOccurrence[] = [
       {
         id: "o1",
         reminder_id: "r1",
-        scheduled_for: "2026-01-01T08:15:00.000Z",
+        // No trailing "Z": reminder_occurrences.scheduled_for is always a
+        // naive local wall-clock string in production (lib/db/local.ts's
+        // `${date}T${time}:00`, never a UTC-suffixed instant), and
+        // computeSnoozeMetrics reads it back with `.getHours()` (also
+        // local). Anchoring this fixture to explicit UTC only matched
+        // "hour 8" on a machine whose local timezone happens to be UTC.
+        scheduled_for: "2026-01-01T08:15:00.000",
         status: "pending",
         repeat_count: 0,
         escalated: false,
@@ -75,7 +89,7 @@ describe("computeSnoozeMetrics", () => {
       {
         id: "o2",
         reminder_id: "r1",
-        scheduled_for: "2026-01-01T08:35:00.000Z",
+        scheduled_for: "2026-01-01T08:35:00.000",
         status: "pending",
         repeat_count: 0,
         escalated: false,

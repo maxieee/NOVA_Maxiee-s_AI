@@ -11,7 +11,15 @@ import {
 import type { ProactiveRuleContext } from "../lib/proactive/types";
 import type { PaymentAccount, PaymentCycle, Reminder, ReminderOccurrence } from "../types/reminder";
 
-const NOW = new Date("2026-06-15T10:00:00Z");
+// Deliberately no trailing "Z": reminder.date/time (and anything derived
+// from it, e.g. reminderApproaching.ts's `new Date(`${date}T${time}:00`)`)
+// is parsed as naive LOCAL wall-clock time everywhere in production
+// (lib/scheduling/urgency.ts, lib/db/local.ts, lib/db/supabase.ts all do
+// this consistently). Anchoring NOW to an explicit UTC instant here would
+// only line up with the fixtures' local-time reminders on a machine whose
+// local timezone happens to be UTC — this exact mismatch caused a false
+// "received zero events" failure on a non-UTC machine.
+const NOW = new Date("2026-06-15T10:00:00");
 
 function baseReminder(overrides: Partial<Reminder> = {}): Reminder {
   return {
