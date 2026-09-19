@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:seed": "tsx scripts/seed.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
     "vapid:generate": "node scripts/generate-vapid-keys.js",
     "dev:cron": "curl -X POST http://localhost:3000/api/cron/process-due-reminders -H \"x-cron-secret: $CRON_SECRET\""
   },
