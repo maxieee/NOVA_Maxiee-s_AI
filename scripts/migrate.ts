@@ -95,6 +95,70 @@ function splitStatements(sql: string): string[] {
   return statements;
 }
 
+const EXPECTED_TABLES = [
+  "users",
+  "user_preferences",
+  "reminder_types",
+  "reminders",
+  "reminder_type_assignments",
+  "payment_details",
+  "call_details",
+  "meeting_details",
+  "follow_up_details",
+  "recurrence_rules",
+  "reminder_occurrences",
+  "notifications",
+  "reminder_history",
+  "user_preferred_channels",
+  "personal_context_entries",
+  "reminder_notification_channels",
+  "push_subscriptions",
+  "payment_accounts",
+  "payment_cycles",
+  "proactive_notifications",
+  "integration_accounts",
+  "automations",
+  "automation_runs",
+  "analytics_recommendations",
+];
+
+/** Prints a post-migration summary: which expected tables exist, their row
+ * counts, and the created_by_automation column type (the one column 0012
+ * exists specifically to repair from 0010's integer-as-boolean bug). */
+async function printVerificationSummary(client: Client): Promise<void> {
+  console.log("== Verification summary ==");
+
+  const { rows: existingTables } = await client.query<{ table_name: string }>(
+    `select table_name from information_schema.tables where table_schema = 'public'`
+  );
+  const existingSet = new Set(existingTables.map((r) => r.table_name));
+
+  for (const table of EXPECTED_TABLES) {
+    if (!existingSet.has(table)) {
+      console.log(`  MISSING  ${table}`);
+      continue;
+    }
+    const { rows } = await client.query<{ count: string }>(`select count(*)::text as count from "${table}"`);
+    console.log(`  present  ${table} (${rows[0].count} row(s))`);
+  }
+
+  const missing = EXPECTED_TABLES.filter((t) => !existingSet.has(t));
+
+  const { rows: colRows } = await client.query<{ data_type: string }>(
+    `select data_type from information_schema.columns where table_name = 'reminders' and column_name = 'created_by_automation'`
+  );
+  const columnType = colRows[0]?.data_type ?? "(column missing)";
+  console.log(`  reminders.created_by_automation column type: ${columnType} (expected: boolean)`);
+
+  if (missing.length > 0) {
+    throw new Error(`Verification failed: missing expected table(s): ${missing.join(", ")}`);
+  }
+  if (columnType !== "boolean") {
+    throw new Error(`Verification failed: reminders.created_by_automation is "${columnType}", expected "boolean"`);
+  }
+  console.log("  All expected tables present and created_by_automation is boolean. Schema verified OK.\n");
+}
+
 async function main() {
   const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
   if (!connectionString) {
@@ -149,15 +213,19 @@ async function main() {
       console.log("");
     }
 
-    console.log(`Done. ${totalOk} statement(s) applied, ${totalExpectedFailures} expected/known failure(s) skipped.`);
-    console.log("Schema should now match database/migrations/0012_postgres_compatibility_fixes.sql's end state.");
+    console.log(`Done. ${totalOk} statement(s) applied, ${totalExpectedFailures} expected/known failure(s) skipped.\n`);
+    await printVerificationSummary(client);
   } finally {
     await client.end();
   }
 }
 
-main().catch((err) => {
-  console.error("\nMigration run aborted due to an unexpected error.");
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("\nMigration run aborted due to an unexpected error.");
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+export { splitStatements, stripLineComments, isExpectedFailureStatement, EXPECTED_FAILURE_MARKERS, EXPECTED_TABLES };
