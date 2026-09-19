@@ -1013,6 +1013,14 @@ every protected route, for curl/scripts/manual API use.
 - No CORS configuration was added: this is a same-origin PWA with no other
   client origins, so the browser's default same-origin policy is already
   the desired behavior.
-- SSR page routes (`/`, `/today`, etc.) are out of this phase's scope,
-  which the audit and this work focus on the API layer; see "Known
-  limitations" in the Phase 2 handoff notes.
+- **Page routes are covered too.** The final production audit found that
+  every SSR page (`/`, `/today`, `/reminders`, `/payments`, `/tasks`,
+  `/calendar`, `/history`, `/assistant`, `/automations`, `/analytics`,
+  `/settings`) is a server component that calls `db.*` directly and bakes
+  real private data into the HTML — that HTML bypassed the `/api/*`-only
+  gate above entirely, so an unauthenticated visitor could see it just by
+  requesting the URL. `middleware.ts`'s matcher now also covers page
+  routes (checking the same `nova_session` cookie / bearer token) and
+  redirects an unauthenticated page request to `/login` (307) instead of
+  rendering. `/login` itself, the Google OAuth callback, and static/PWA
+  assets (manifest, service worker, icons, Next internals) remain exempt.

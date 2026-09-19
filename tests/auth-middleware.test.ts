@@ -208,4 +208,47 @@ describe("protected reminders route cannot be used anonymously", () => {
   async function importMiddlewareHelper() {
     return await import("../middleware");
   }
+
+  it("9. an unauthenticated page request (e.g. /today) redirects to /login instead of rendering", async () => {
+    const { middleware } = await importMiddlewareHelper();
+    const res = middleware(makeRequest("/today"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("http://localhost:3000/login");
+  });
+
+  it("10. other private pages (reminders, payments, settings, analytics) also redirect anonymously", async () => {
+    const { middleware } = await importMiddlewareHelper();
+    for (const path of ["/reminders", "/payments", "/settings", "/analytics", "/history", "/tasks", "/calendar", "/automations", "/assistant", "/"]) {
+      const res = middleware(makeRequest(path));
+      expect([307, 308]).toContain(res.status);
+      expect(res.headers.get("location")).toBe("http://localhost:3000/login");
+    }
+  });
+
+  it("11. /login itself is reachable with no session", async () => {
+    const { middleware } = await importMiddlewareHelper();
+    const res = middleware(makeRequest("/login"));
+    expect(res.status).toBe(200);
+  });
+
+  it("12. an authenticated page request (valid session cookie) passes through", async () => {
+    const { middleware } = await importMiddlewareHelper();
+    const req = makeRequest("/today", { headers: { cookie: "nova_session=authenticated" } });
+    const res = middleware(req);
+    expect(res.status).toBe(200);
+  });
+
+  it("13. static/PWA assets are not gated by the page check", async () => {
+    const { middleware } = await importMiddlewareHelper();
+    for (const path of ["/manifest.webmanifest", "/sw.js", "/icons/icon-192.png"]) {
+      const res = middleware(makeRequest(path));
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("14. Google OAuth callback page is not redirected to /login (has its own CSRF check)", async () => {
+    const { middleware } = await importMiddlewareHelper();
+    const res = middleware(makeRequest("/api/integrations/google/callback"));
+    expect(res.status).toBe(200);
+  });
 });

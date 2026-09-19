@@ -58,13 +58,39 @@ import { isValidAppToken, isValidSessionCookie, SESSION_COOKIE_NAME } from "@/li
  * one authenticated user should be able to kick off linking a Google
  * account, and it's a normal same-origin browser navigation so the session
  * cookie is sent automatically — no special-casing needed.
+ *
+ * PAGE ROUTES: every app/**\/page.tsx that renders real user data (today,
+ * reminders, payments, tasks, calendar, history, assistant, automations,
+ * analytics, settings) is a server component that calls db.* directly and
+ * bakes the result into the HTML sent to the browser — that HTML bypasses
+ * the /api/* gate above entirely. This matcher therefore also covers page
+ * routes, exempting only: /login (must be reachable with no session to let
+ * the user sign in), the Google OAuth callback (see above; it has its own
+ * CSRF protection and cannot carry our cookie), and static/PWA assets
+ * (manifest, service worker, icons, Next's own internals) which carry no
+ * private data. An unauthenticated page request is redirected (307) to
+ * /login instead of a JSON 401, since a browser navigation expects HTML.
  */
 
-const EXEMPT_EXACT = new Set(["/api/integrations/google/callback", "/api/auth/login"]);
+const EXEMPT_EXACT = new Set([
+  "/api/integrations/google/callback",
+  "/api/auth/login",
+  "/login",
+]);
 
-function isExempt(pathname: string): boolean {
+function isExemptApi(pathname: string): boolean {
   if (pathname.startsWith("/api/cron/")) return true;
   if (EXEMPT_EXACT.has(pathname)) return true;
+  return false;
+}
+
+function isExemptPage(pathname: string): boolean {
+  if (EXEMPT_EXACT.has(pathname)) return true;
+  if (pathname.startsWith("/_next/")) return true;
+  if (pathname === "/favicon.ico") return true;
+  // Any other static file served from public/ (icons, images, etc.) has an
+  // extension; page routes never do.
+  if (/\.[a-zA-Z0-9]+$/.test(pathname) && !pathname.startsWith("/api/")) return true;
   return false;
 }
 
@@ -81,22 +107,27 @@ export function isAuthorizedRequest(req: NextRequest): boolean {
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const isApi = pathname.startsWith("/api/");
 
-  if (isExempt(pathname)) {
+  if (isApi ? isExemptApi(pathname) : isExemptPage(pathname)) {
     return NextResponse.next();
   }
 
   if (!isAuthorizedRequest(req)) {
-    // Generic body: never distinguishes missing vs. wrong token, never
-    // echoes what was compared, no stack trace.
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (isApi) {
+      // Generic body: never distinguishes missing vs. wrong token, never
+      // echoes what was compared, no stack trace.
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const loginUrl = new URL("/login", req.url);
+    return NextResponse.redirect(loginUrl, 307);
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: ["/api/:path*", "/((?!_next|favicon.ico).*)"],
   // Node.js middleware runtime (stable since Next.js 15.2+): needed so
   // lib/auth/compareSecret.ts can use Node's `crypto.timingSafeEqual`
   // rather than reimplementing it on the Edge runtime's Web Crypto subset.
