@@ -55,6 +55,7 @@ export function MonthGrid({ year, month, reminders }: { year: number; month: num
                   <Link
                     key={r.id}
                     href={`/reminders/${r.id}`}
+                    prefetch={false}
                     className="truncate rounded bg-nova-surface2 px-1.5 py-0.5 text-[10px] text-white hover:bg-nova-primary/30"
                   >
                     {r.title}

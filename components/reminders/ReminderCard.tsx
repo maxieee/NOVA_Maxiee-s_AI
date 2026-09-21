@@ -29,6 +29,7 @@ export function ReminderCard({
   return (
     <Link
       href={`/reminders/${reminder.id}`}
+      prefetch={false}
       className="nova-card nova-card-hover animate-slide-up flex flex-col gap-3 p-4"
     >
       <div className="flex items-start justify-between gap-3">

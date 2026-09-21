@@ -78,6 +78,7 @@ export default async function PaymentsPage() {
             <Link
               key={account.id}
               href={`/payments/${account.id}`}
+              prefetch={false}
               className="nova-card nova-card-hover flex flex-col gap-3 p-4"
             >
               <div className="flex items-start justify-between gap-2">
@@ -119,7 +120,7 @@ export default async function PaymentsPage() {
             </h2>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {adHocPayments.map((r) => (
-                <Link key={r.id} href={`/reminders/${r.id}`} className="nova-card p-4">
+                <Link key={r.id} href={`/reminders/${r.id}`} prefetch={false} className="nova-card p-4">
                   <p className="text-sm font-semibold text-white">{r.title}</p>
                   <p className="text-xs text-nova-muted">Due {r.payment?.due_date}</p>
                 </Link>

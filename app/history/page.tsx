@@ -36,6 +36,7 @@ export default async function HistoryPage() {
             <Link
               key={e.id}
               href={`/reminders/${e.reminder.id}`}
+              prefetch={false}
               className="flex items-center gap-3 p-4 transition-colors hover:bg-nova-surface2"
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-nova-border bg-nova-surface2 text-nova-primary">

@@ -61,10 +61,41 @@ import type {
  * a warm container's module scope between invocations, so the pool is not
  * recreated per request; a cold start creates exactly one new pool). Pool
  * size is kept small (default 5) since a serverless function should hold
- * few concurrent connections per instance; for real production traffic
- * beyond a single-user app, put PgBouncer (Supabase's built-in connection
- * pooler, the "Transaction" pooler URL) in front and point DATABASE_URL at
- * that instead of the direct connection string.
+ * few concurrent connections per instance.
+ *
+ * REQUIRED IN PRODUCTION: DATABASE_URL must point at Supabase's
+ * **Transaction Pooler** (Supavisor "Transaction" mode, the connection
+ * string using port 6543), NOT the Session Pooler (port 5432) and NOT the
+ * direct connection string. This isn't just a performance suggestion —
+ * using the Session Pooler in production caused a real incident
+ * (`EMAXCONNSESSION: max clients reached in session mode`): Next.js on
+ * Vercel runs each route as its own serverless function, so under any
+ * concurrent traffic (e.g. several /reminders/[id] page loads at once)
+ * multiple separate lambda instances can be warm simultaneously, each with
+ * its OWN independent `Pool` of up to NOVA_PG_POOL_MAX connections. Session
+ * mode reserves one dedicated Postgres backend connection per client
+ * connection for its *entire* lifetime (not just per-query/transaction),
+ * so those pools' connections accumulate across concurrently-warm
+ * instances and can exhaust the project's session-pooler connection quota
+ * under bursty concurrent load — exactly what happened here. Transaction
+ * mode instead multiplexes many client-side "connections" onto a much
+ * smaller set of real backend connections, handing one back to the shared
+ * pool as soon as each transaction/statement finishes, which is what
+ * serverless's many-short-lived-connections access pattern actually needs.
+ *
+ * COMPATIBILITY (verified, not assumed): this file's `pg` usage was
+ * audited against Transaction pooler's constraints and needs no code
+ * changes. `withTx()` below acquires exactly one `PoolClient` via
+ * `pool.connect()` for a BEGIN...COMMIT/ROLLBACK sequence and releases it
+ * once, immediately after — it never holds a transaction open across
+ * unrelated work or spans one transaction across multiple separately
+ * acquired connections, which is exactly the discipline transaction-mode
+ * pooling requires. Every other call site queries via `getPool()` directly
+ * (an implicit single-statement acquire+release per call). Nothing in this
+ * file uses session-scoped Postgres features that transaction pooling
+ * cannot support (no `LISTEN`/`NOTIFY`, no advisory locks, no session-level
+ * `SET`, no named/reused prepared statements) — confirmed by inspection of
+ * every `exec`/`one`/`many` call in this file.
  */
 
 let pool: Pool | null = null;
